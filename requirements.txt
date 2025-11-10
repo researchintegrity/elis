@@ -1,0 +1,2 @@
+# 2025 ELIS System Requirements
+fastapi==0.121.1

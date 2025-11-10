@@ -1,0 +1,222 @@
+# ================================================================================
+# ELIS User Management System - .gitignore
+# Comprehensive ignore patterns for Python/FastAPI development with VS Code
+# ================================================================================
+
+# ============================================================================
+# VS CODE SPECIFIC
+# ============================================================================
+# VS Code settings and extensions
+.vscode/
+*.code-workspace
+.devcontainer/
+
+# VS Code debug configurations
+.vscode/launch.json
+.vscode/settings.json
+.vscode/extensions.json
+
+# Local History for Visual Studio Code
+.history/
+.ionide/
+
+# ============================================================================
+# PYTHON & VIRTUAL ENVIRONMENTS
+# ============================================================================
+# Virtual environments
+venv/
+dev-venv/
+env/
+ENV/
+.venv
+.env
+.env.local
+.env.*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# ============================================================================
+# PROJECT SPECIFIC
+# ============================================================================
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+elis_system.db
+elis_system.db-journal
+
+# Environment files (keep .env.example)
+.env
+.env.*.local
+local_config.py
+
+# Application logs
+*.log
+logs/
+*.log.*
+
+# Alembic migrations (cache only)
+alembic/versions/__pycache__/
+
+# Test coverage
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.tox/
+.nox/
+
+# Local development
+.local/
+.tmp/
+*.tmp
+*.temp
+
+# ============================================================================
+# OS SPECIFIC
+# ============================================================================
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+.directory
+.Trash-*
+
+# ============================================================================
+# IDE & EDITOR SPECIFIC
+# ============================================================================
+# PyCharm
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+[._]*.s[a-v][a-z]
+[._]*.sw[a-p]
+*~
+.vim/
+
+# Emacs
+*~
+\#*\#
+.\#*
+
+# Nano
+.nano_history
+
+# ============================================================================
+# DEPENDENCY MANAGEMENT
+# ============================================================================
+# pip
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Poetry
+poetry.lock
+
+# Pipenv
+Pipfile.lock
+
+# ============================================================================
+# TEMPORARY & BUILD FILES
+# ============================================================================
+# Temporary files
+*.bak
+*.swp
+*.swo
+*~
+.~*
+.DS_Store
+._*
+
+# Build artifacts
+build/
+*.so
+*.egg
+*.egg-info/
+dist/
+.eggs/
+
+# Cache
+*.cache
+.cache/
+__pycache__/
+.pytest_cache/
+
+# ============================================================================
+# WINDOWS SPECIFIC STARTUP SCRIPTS (Local Only)
+# ============================================================================
+start.bat
+start.ps1
+
+# ============================================================================
+# PROJECT DIAGRAMS & DOCUMENTATION
+# ============================================================================
+# Excalidraw diagrams (local development)
+*.excalidraw
+elis-system.excalidraw
+
+# Temporary documentation
+*.md.bak
+docs/_build/
+
+# ============================================================================
+# JUPYTER NOTEBOOKS
+# ============================================================================
+.ipynb_checkpoints
+*.ipynb_checkpoints
+*.ipynb
+
+# ============================================================================
+# MISCELLANEOUS
+# ============================================================================
+# Node modules (if any frontend tooling added later)
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Miscellaneous
+.env.production.local
+.env.development.local
+.env.test.local
