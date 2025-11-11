@@ -24,8 +24,8 @@ To modify quotas:
 DEFAULT_USER_STORAGE_QUOTA = 1 * 1024 * 1024 * 1024  # 1 GB
 
 # Individual file limits (in bytes)
-MAX_PDF_FILE_SIZE = 50 * 1024 * 1024  # 50 MB per PDF
-MAX_IMAGE_FILE_SIZE = 10 * 1024 * 1024  # 10 MB per image
+MAX_PDF_FILE_SIZE = 500 * 1024 * 1024  # 500 MB per PDF
+MAX_IMAGE_FILE_SIZE = 100 * 1024 * 1024  # 100 MB per image
 
 # ============================================================================
 # UTILITY FUNCTIONS
