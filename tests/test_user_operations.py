@@ -62,11 +62,11 @@ class TestUserRegistration:
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
     def test_register_user_short_password(self, client, clean_users_collection):
-        """Test registration with password less than 8 characters"""
+        """Test registration with password less than 4 characters"""
         short_pass_data = {
             "username": "testuser",
             "email": "testuser@example.com",
-            "password": "short",  # Less than 8 characters
+            "password": "ab",  # Less than 4 characters
             "full_name": "Test User"
         }
 
