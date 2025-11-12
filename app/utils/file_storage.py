@@ -7,7 +7,7 @@ from typing import Tuple, Optional
 from datetime import datetime
 
 # Base upload directory
-UPLOAD_DIR = Path("uploads")
+UPLOAD_DIR = Path("workspace")
 
 # Import quota configuration
 from app.config.storage_quota import MAX_PDF_FILE_SIZE, MAX_IMAGE_FILE_SIZE, DEFAULT_USER_STORAGE_QUOTA
@@ -376,7 +376,7 @@ def figure_extraction_hook(
     
     This function will be called automatically after a PDF is uploaded.
     It should extract figures from the PDF and save them to:
-    /uploads/{user_id}/images/extracted/{doc_id}/
+    /workspace/{user_id}/images/extracted/{doc_id}/
     
     Args:
         doc_id: Document ID

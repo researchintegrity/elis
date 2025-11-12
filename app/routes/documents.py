@@ -388,7 +388,7 @@ async def delete_document(
         delete_file(doc["file_path"])
         
         # Delete extraction directory
-        extraction_dir = f"uploads/{current_user['_id']}/images/extracted/{doc_id}"
+        extraction_dir = f"workspace/{current_user['_id']}/images/extracted/{doc_id}"
         delete_directory(extraction_dir)
         
         # Delete extracted images from MongoDB

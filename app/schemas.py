@@ -171,7 +171,7 @@ class DocumentCreate(BaseModel):
             "example": {
                 "user_id": "507f1f77bcf86cd799439011",
                 "filename": "research_paper.pdf",
-                "file_path": "/uploads/507f1f77bcf86cd799439011/pdfs/1730000000_research_paper.pdf",
+                "file_path": "/workspace/507f1f77bcf86cd799439011/pdfs/1730000000_research_paper.pdf",
                 "file_size": 2048576
             }
         }
@@ -206,7 +206,7 @@ class DocumentResponse(BaseModel):
                 "_id": "507f1f77bcf86cd799439012",
                 "user_id": "507f1f77bcf86cd799439011",
                 "filename": "research_paper.pdf",
-                "file_path": "/uploads/507f1f77bcf86cd799439011/pdfs/1730000000_research_paper.pdf",
+                "file_path": "/workspace/507f1f77bcf86cd799439011/pdfs/1730000000_research_paper.pdf",
                 "file_size": 2048576,
                 "extraction_status": "completed",
                 "extracted_image_count": 5,
@@ -248,7 +248,7 @@ class ImageCreate(BaseModel):
             "example": {
                 "user_id": "507f1f77bcf86cd799439011",
                 "filename": "figure_1.png",
-                "file_path": "/uploads/507f1f77bcf86cd799439011/images/extracted/507f1f77bcf86cd799439012/figure_1.png",
+                "file_path": "/workspace/507f1f77bcf86cd799439011/images/extracted/507f1f77bcf86cd799439012/figure_1.png",
                 "file_size": 512000,
                 "source_type": "extracted",
                 "document_id": "507f1f77bcf86cd799439012"
@@ -284,7 +284,7 @@ class ImageResponse(BaseModel):
                 "_id": "507f1f77bcf86cd799439013",
                 "user_id": "507f1f77bcf86cd799439011",
                 "filename": "figure_1.png",
-                "file_path": "/uploads/507f1f77bcf86cd799439011/images/extracted/507f1f77bcf86cd799439012/figure_1.png",
+                "file_path": "/workspace/507f1f77bcf86cd799439011/images/extracted/507f1f77bcf86cd799439012/figure_1.png",
                 "file_size": 512000,
                 "source_type": "extracted",
                 "document_id": "507f1f77bcf86cd799439012",
