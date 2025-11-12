@@ -8,8 +8,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://localhost:27017")
-DATABASE_NAME = os.getenv("DATABASE_NAME", "elis_system")
+# These are read dynamically so test fixtures can override them
+def get_mongodb_url():
+    return os.getenv("MONGODB_URL", "mongodb://localhost:27017")
+
+def get_database_name():
+    return os.getenv("DATABASE_NAME", "elis_system")
 
 
 class MongoDBConnection:
@@ -26,10 +30,12 @@ class MongoDBConnection:
     def connect(self):
         """Connect to MongoDB"""
         try:
-            self._client = MongoClient(MONGODB_URL, serverSelectionTimeoutMS=5000)
+            mongodb_url = get_mongodb_url()
+            database_name = get_database_name()
+            self._client = MongoClient(mongodb_url, serverSelectionTimeoutMS=5000)
             self._client.admin.command('ping')
-            self._db = self._client[DATABASE_NAME]
-            print(f"✅ Connected to MongoDB: {DATABASE_NAME}")
+            self._db = self._client[database_name]
+            print(f"✅ Connected to MongoDB: {database_name}")
         except Exception as e:
             print(f"❌ MongoDB connection failed: {str(e)}")
             raise HTTPException(

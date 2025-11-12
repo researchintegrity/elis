@@ -84,10 +84,10 @@ def test_user_token(client):
 
 
 @pytest.fixture(autouse=True)
-def cleanup_uploads():
-    """Cleanup uploads directory after each test"""
+def cleanup_workspace():
+    """Cleanup workspace directory after each test"""
     yield
-    # Clean up uploads directory
+    # Clean up workspace directory
     if UPLOAD_DIR.exists():
         try:
             delete_directory(str(UPLOAD_DIR))
@@ -227,8 +227,8 @@ class TestDocumentUpload:
         data = response.json()
         assert data["filename"] == filename
         assert data["file_size"] == len(pdf_content)
-        # Extraction hook is a placeholder that returns success
-        assert data["extraction_status"] == "completed"
+        # Extraction is now async, so status will be "pending" initially
+        assert data["extraction_status"] in ["pending", "completed"]
         assert data["extracted_image_count"] == 0
         assert "_id" in data or "id" in data
     

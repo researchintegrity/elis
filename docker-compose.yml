@@ -14,7 +14,7 @@ services:
       - mongo
       - redis
     volumes:
-      - ./uploads:/app/uploads
+      - ./workspace:/app/workspace
       - ./extractions:/app/extractions
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     networks:
@@ -35,16 +35,31 @@ services:
     networks:
       - elis_network
 
-  # MongoDB Database
+  # MongoDB Database (unauthenticated for local development)
   mongo:
     image: mongo:6
     ports:
       - "27017:27017"
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: admin
-      MONGO_INITDB_ROOT_PASSWORD: password
+    # environment:
+    #   MONGO_INITDB_ROOT_USERNAME: admin
+    #   MONGO_INITDB_ROOT_PASSWORD: password
     volumes:
       - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - elis_network
+
+  # MongoDB Test Database (unauthenticated for local testing)
+  mongo_test:
+    image: mongo:6
+    ports:
+      - "27018:27017"
+    volumes:
+      - mongo_test_data:/data/db
     healthcheck:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
       interval: 5s
@@ -64,7 +79,7 @@ services:
       - redis
       - mongo
     volumes:
-      - ./uploads:/app/uploads
+      - ./workspace:/app/workspace
       - ./extractions:/app/extractions
     command: celery -A app.celery_config worker -l info -n worker1@%h -c 1
     restart: unless-stopped
@@ -82,7 +97,7 @@ services:
       - redis
       - mongo
     volumes:
-      - ./uploads:/app/uploads
+      - ./workspace:/app/workspace
       - ./extractions:/app/extractions
     command: celery -A app.celery_config worker -l info -n worker2@%h -c 1
     restart: unless-stopped
@@ -105,6 +120,8 @@ services:
 
 volumes:
   mongo_data:
+    driver: local
+  mongo_test_data:
     driver: local
   redis_data:
     driver: local

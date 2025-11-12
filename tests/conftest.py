@@ -11,8 +11,10 @@ from app.db.mongodb import db_connection, get_users_collection
 # Load test environment variables
 load_dotenv()
 
-# Test MongoDB connection string (can be overridden with TEST_MONGODB_URL env var)
-TEST_MONGODB_URL = os.getenv("TEST_MONGODB_URL", "mongodb://localhost:27017")
+# Test MongoDB connection string (unauthenticated test database on port 27018)
+# Can be overridden with TEST_MONGODB_URL env var
+# Using separate test database to avoid conflicts with main app
+TEST_MONGODB_URL = os.getenv("TEST_MONGODB_URL", "mongodb://localhost:27018")
 TEST_DATABASE_NAME = "elis_system_test"
 
 
