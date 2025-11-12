@@ -179,7 +179,7 @@ GET /health
 ### Password Security
 - **Hashing**: Bcrypt with automatic salt generation
 - **Verification**: Constant-time comparison
-- **Minimum Length**: 8 characters
+- **Minimum Length**: 4 characters
 
 ### Authentication
 - **JWT Tokens**: HS256 algorithm
@@ -337,7 +337,7 @@ async def protected_endpoint(current_user: dict = Depends(get_current_active_use
 - Or use different username/email
 
 ### Password Verification Failed
-- Ensure password meets minimum length (8 characters)
+- Ensure password meets minimum length (4 characters)
 - Check password matches stored hash
 - Verify bcrypt library is properly installed
 
