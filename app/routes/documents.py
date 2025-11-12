@@ -15,7 +15,6 @@ from app.utils.file_storage import (
     validate_pdf,
     save_pdf_file,
     get_extraction_output_path,
-    figure_extraction_hook,
     delete_directory,
     delete_file,
     check_storage_quota,
@@ -23,6 +22,9 @@ from app.utils.file_storage import (
     update_user_storage_in_db
 )
 from app.config.storage_quota import DEFAULT_USER_STORAGE_QUOTA
+from app.tasks.image_extraction import extract_images_from_document
+from celery.result import AsyncResult
+from app.celery_config import celery_app
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -110,43 +112,18 @@ async def upload_document(
         # Create extraction output directory
         get_extraction_output_path(user_id_str, doc_id)
         
-        # Trigger figure extraction hook (placeholder)
-        try:
-            extracted_count, extraction_errors = figure_extraction_hook(
-                doc_id=doc_id,
-                user_id=user_id_str,
-                pdf_file_path=file_path
-            )
-            
-            # Determine extraction status
-            if extraction_errors:
-                extraction_status = "completed" if extracted_count > 0 else "failed"
-            else:
-                extraction_status = "completed"
-            
-            # Update document with extraction results
-            documents_col.update_one(
-                {"_id": ObjectId(doc_id)},
-                {
-                    "$set": {
-                        "extraction_status": extraction_status,
-                        "extracted_image_count": extracted_count,
-                        "extraction_errors": extraction_errors
-                    }
-                }
-            )
+        # ✨ QUEUE IMAGE EXTRACTION TASK (asynchronous - returns immediately)
+        task = extract_images_from_document.delay(
+            doc_id=doc_id,
+            user_id=user_id_str,
+            pdf_path=file_path
+        )
         
-        except Exception as e:
-            # Log extraction error but don't fail the upload
-            documents_col.update_one(
-                {"_id": ObjectId(doc_id)},
-                {
-                    "$set": {
-                        "extraction_status": "failed",
-                        "extraction_errors": [f"Extraction error: {str(e)}"]
-                    }
-                }
-            )
+        # Store task_id in document for status checking
+        documents_col.update_one(
+            {"_id": ObjectId(doc_id)},
+            {"$set": {"task_id": task.id}}
+        )
         
         # Retrieve and return updated document with quota info
         doc_record = documents_col.find_one({"_id": ObjectId(doc_id)})
@@ -431,4 +408,59 @@ async def delete_document(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to delete document: {str(e)}"
+        )
+
+
+# ============================================================================
+# TASK STATUS ENDPOINTS
+# ============================================================================
+
+@router.get("/tasks/{task_id}", tags=["documents"])
+async def get_task_status(
+    task_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get status of image extraction task
+    
+    Query a background task's status. The status can be:
+    - PENDING: Task is waiting in the queue
+    - STARTED: Task has started processing
+    - SUCCESS: Task completed successfully
+    - FAILURE: Task failed
+    - RETRY: Task is retrying after failure
+    - REVOKED: Task was cancelled
+    
+    Returns:
+        {
+            "task_id": "abc-123-def",
+            "status": "SUCCESS",
+            "result": {
+                "doc_id": "507f1f77bcf86cd799439011",
+                "extracted_count": 5,
+                "errors": []
+            }
+        }
+    """
+    try:
+        task = AsyncResult(task_id, app=celery_app)
+        
+        response = {
+            "task_id": task_id,
+            "status": task.status,
+        }
+        
+        if task.successful():
+            response["result"] = task.result
+        elif task.failed():
+            response["error"] = str(task.info)
+        elif task.status == "RETRY":
+            response["error"] = str(task.info)
+        
+        return response
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve task status: {str(e)}"
         )

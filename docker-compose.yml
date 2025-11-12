@@ -1,0 +1,114 @@
+version: "3.8"
+
+services:
+  # FastAPI Application
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      MONGODB_URL: mongodb://mongo:27017
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      - mongo
+      - redis
+    volumes:
+      - ./uploads:/app/uploads
+      - ./extractions:/app/extractions
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    networks:
+      - elis_network
+
+  # Redis Message Broker
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - elis_network
+
+  # MongoDB Database
+  mongo:
+    image: mongo:6
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - elis_network
+
+  # Celery Worker 1
+  worker_1:
+    build: .
+    environment:
+      MONGODB_URL: mongodb://mongo:27017
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      - redis
+      - mongo
+    volumes:
+      - ./uploads:/app/uploads
+      - ./extractions:/app/extractions
+    command: celery -A app.celery_config worker -l info -n worker1@%h -c 1
+    restart: unless-stopped
+    networks:
+      - elis_network
+
+  # Celery Worker 2
+  worker_2:
+    build: .
+    environment:
+      MONGODB_URL: mongodb://mongo:27017
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      - redis
+      - mongo
+    volumes:
+      - ./uploads:/app/uploads
+      - ./extractions:/app/extractions
+    command: celery -A app.celery_config worker -l info -n worker2@%h -c 1
+    restart: unless-stopped
+    networks:
+      - elis_network
+
+  # Celery Flower - Monitoring Dashboard
+  flower:
+    image: mher/flower:2.0
+    ports:
+      - "5555:5555"
+    environment:
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    depends_on:
+      - redis
+    command: celery --broker=redis://redis:6379/0 flower --port=5555
+    networks:
+      - elis_network
+
+volumes:
+  mongo_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  elis_network:
+    driver: bridge
