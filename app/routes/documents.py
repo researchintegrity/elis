@@ -112,11 +112,16 @@ async def upload_document(
         # Create extraction output directory
         get_extraction_output_path(user_id_str, doc_id)
         
+        # Convert relative path to absolute path for worker container
+        # file_path is like "workspace/user_id/pdfs/file.pdf"
+        # In worker container, this should be "/app/workspace/user_id/pdfs/file.pdf"
+        absolute_pdf_path = f"/app/{file_path}"
+        
         # ✨ QUEUE IMAGE EXTRACTION TASK (asynchronous - returns immediately)
         task = extract_images_from_document.delay(
             doc_id=doc_id,
             user_id=user_id_str,
-            pdf_path=file_path
+            pdf_path=absolute_pdf_path
         )
         
         # Store task_id in document for status checking
@@ -193,7 +198,7 @@ async def list_documents(
     return responses
 
 
-@router.get("/{doc_id}", response_model=DocumentResponse)
+@router.get("/{doc_id}")
 async def get_document(
     doc_id: str,
     current_user: dict = Depends(get_current_user)
@@ -236,7 +241,18 @@ async def get_document(
     doc["user_storage_used"] = quota_status["used_bytes"]
     doc["user_storage_remaining"] = quota_status["remaining_bytes"]
     
-    return DocumentResponse(**doc)
+    # Return raw dict (convert ObjectId and datetime for JSON serialization)
+    from datetime import datetime as dt
+    result = {}
+    for key, value in doc.items():
+        if isinstance(value, ObjectId):
+            result[key] = str(value)
+        elif isinstance(value, dt):
+            result[key] = value.isoformat()
+        else:
+            result[key] = value
+    
+    return result
 
 
 @router.get("/{doc_id}/images", response_model=List[ImageResponse])

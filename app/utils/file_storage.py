@@ -373,7 +373,7 @@ def figure_extraction_hook(
     doc_id: str,
     user_id: str,
     pdf_file_path: str
-) -> Tuple[int, list[str]]:
+) -> Tuple[int, list[str], list]:
     """
     Extract figures from PDF using Docker container
     
@@ -394,9 +394,10 @@ def figure_extraction_hook(
         pdf_file_path: Path to the PDF file
         
     Returns:
-        Tuple of (extracted_image_count, extraction_errors)
+        Tuple of (extracted_image_count, extraction_errors, extracted_files)
         - extracted_image_count: Number of images successfully extracted
         - extraction_errors: List of error messages encountered during extraction
+        - extracted_files: List of dicts with extracted image metadata
         
     Raises:
         Should NOT raise exceptions. Instead, return errors in the list.
@@ -410,7 +411,7 @@ def figure_extraction_hook(
         )
         
         # Use Docker container for extraction
-        extracted_count, extraction_errors = extract_images_with_docker(
+        extracted_count, extraction_errors, extracted_files = extract_images_with_docker(
             doc_id=doc_id,
             user_id=user_id,
             pdf_file_path=pdf_file_path,
@@ -420,7 +421,8 @@ def figure_extraction_hook(
         if extracted_count > 0:
             logger.info(
                 f"Successfully extracted {extracted_count} images "
-                f"for doc_id={doc_id}"
+                f"for doc_id={doc_id}\n"
+                f"  Files: {[f['filename'] for f in extracted_files]}"
             )
         elif extraction_errors:
             logger.warning(
@@ -430,13 +432,13 @@ def figure_extraction_hook(
         else:
             logger.warning(f"No images extracted for doc_id={doc_id}")
         
-        return extracted_count, extraction_errors
+        return extracted_count, extraction_errors, extracted_files
     
     except Exception as e:
         # Don't raise - return as error in list
         error_msg = f"Extraction failed: {str(e)}"
         logger.error(error_msg, exc_info=True)
-        return 0, [error_msg]
+        return 0, [error_msg], []
 
 
 # ============================================================================

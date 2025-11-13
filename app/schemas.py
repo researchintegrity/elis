@@ -177,6 +177,14 @@ class DocumentCreate(BaseModel):
         }
 
 
+class ExtractedImageInfo(BaseModel):
+    """Information about an extracted image"""
+    filename: str
+    path: str
+    size: int
+    mime_type: str
+
+
 class DocumentResponse(BaseModel):
     """Document response model"""
     id: str = Field(alias="_id")
@@ -187,6 +195,7 @@ class DocumentResponse(BaseModel):
     extraction_status: str = Field(default="pending", description="pending|completed|failed")
     extracted_image_count: int = 0
     extraction_errors: list[str] = Field(default_factory=list)
+    extracted_images: list[ExtractedImageInfo] = Field(default_factory=list)
     uploaded_date: datetime
     user_storage_used: int = 0  # Total bytes used by user
     user_storage_remaining: int = 1073741824  # Remaining quota
@@ -201,7 +210,7 @@ class DocumentResponse(BaseModel):
 
     class Config:
         from_attributes = True
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "_id": "507f1f77bcf86cd799439012",
                 "user_id": "507f1f77bcf86cd799439011",

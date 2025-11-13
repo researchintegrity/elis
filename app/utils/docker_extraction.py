@@ -4,7 +4,7 @@ Docker-based PDF image extraction using pdf-extractor container
 import subprocess
 import os
 import logging
-from typing import Tuple, List
+from typing import Tuple, List, Dict
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +14,7 @@ def extract_images_with_docker(
     user_id: str,
     pdf_file_path: str,
     docker_image: str = "pdf-extractor:latest"
-) -> Tuple[int, List[str]]:
+) -> Tuple[int, List[str], List[Dict]]:
     """
     Extract images from PDF using Docker container
     
@@ -41,9 +41,10 @@ def extract_images_with_docker(
         docker_image: Docker image to use (default: pdf-extractor:latest)
         
     Returns:
-        Tuple of (extracted_image_count, extraction_errors)
+        Tuple of (extracted_image_count, extraction_errors, extracted_files)
         - extracted_image_count: Number of images successfully extracted
         - extraction_errors: List of error messages encountered
+        - extracted_files: List of dicts with file info {filename, path, size, mime_type}
         
     Raises:
         Returns errors in list instead of raising exceptions
@@ -56,7 +57,7 @@ def extract_images_with_docker(
         if not os.path.exists(pdf_file_path):
             error_msg = f"PDF file not found: {pdf_file_path}"
             logger.error(error_msg)
-            return 0, [error_msg]
+            return 0, [error_msg], []
         
         # Convert to absolute paths for Docker
         pdf_file_path = os.path.abspath(pdf_file_path)
@@ -97,7 +98,7 @@ def extract_images_with_docker(
                 error_msg = "WORKSPACE_PATH environment variable not set"
                 logger.error(error_msg)
                 extraction_errors.append(error_msg)
-                return 0, extraction_errors
+                return 0, extraction_errors, []
             
             # Convert: /app/workspace/user_id/pdfs/... → /host/path/workspace/user_id/pdfs/...
             rel_path = pdf_dir[len("/app/workspace"):]  # Get relative path like /user_id/pdfs
@@ -162,15 +163,44 @@ def extract_images_with_docker(
                 extraction_errors.append(f"{error_msg}: {result.stderr}")
             else:
                 extraction_errors.append(error_msg)
-            return 0, extraction_errors
+            return 0, extraction_errors, []
         
-        # Count extracted images in output directory
+        # Count extracted images in output directory and collect file info
+        extracted_file_list = []
         if os.path.exists(output_dir):
             extracted_files = [
                 f for f in os.listdir(output_dir)
                 if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp', '.tiff', '.bmp'))
             ]
             extracted_image_count = len(extracted_files)
+            
+            # Build file info for each extracted image
+            for filename in extracted_files:
+                filepath = os.path.join(output_dir, filename)
+                file_size = os.path.getsize(filepath)
+                
+                # Determine MIME type based on extension
+                ext = os.path.splitext(filename)[1].lower()
+                mime_type_map = {
+                    '.png': 'image/png',
+                    '.jpg': 'image/jpeg',
+                    '.jpeg': 'image/jpeg',
+                    '.gif': 'image/gif',
+                    '.webp': 'image/webp',
+                    '.tiff': 'image/tiff',
+                    '.bmp': 'image/bmp'
+                }
+                mime_type = mime_type_map.get(ext, 'image/unknown')
+                
+                # Store relative path for database: user_id/images/extracted/doc_id/filename
+                rel_path = f"{user_id}/images/extracted/{doc_id}/{filename}"
+                
+                extracted_file_list.append({
+                    'filename': filename,
+                    'path': rel_path,
+                    'size': file_size,
+                    'mime_type': mime_type
+                })
             
             logger.info(
                 f"Docker extraction completed for doc_id={doc_id}\n"
@@ -194,19 +224,19 @@ def extract_images_with_docker(
             logger.warning(error_msg)
             extraction_errors.append(error_msg)
         
-        return extracted_image_count, extraction_errors
+        return extracted_image_count, extraction_errors, extracted_file_list
         
     except subprocess.TimeoutExpired:
         error_msg = f"Docker extraction timeout for doc_id={doc_id} (5 minutes)"
         logger.error(error_msg)
         extraction_errors.append(error_msg)
-        return 0, extraction_errors
+        return 0, extraction_errors, []
         
     except Exception as exc:
         error_msg = f"Docker extraction error for doc_id={doc_id}: {str(exc)}"
         logger.error(error_msg, exc_info=True)
         extraction_errors.append(error_msg)
-        return 0, extraction_errors
+        return 0, extraction_errors, []
 
 
 def extract_images_with_docker_compose(
