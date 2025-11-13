@@ -2,9 +2,12 @@
 File storage utilities for document and image upload handling
 """
 import shutil
+import logging
 from pathlib import Path
 from typing import Tuple, Optional
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 # Base upload directory
 UPLOAD_DIR = Path("workspace")
@@ -372,11 +375,18 @@ def figure_extraction_hook(
     pdf_file_path: str
 ) -> Tuple[int, list[str]]:
     """
-    Placeholder function for figure extraction from PDF
+    Extract figures from PDF using Docker container
     
-    This function will be called automatically after a PDF is uploaded.
-    It should extract figures from the PDF and save them to:
-    /workspace/{user_id}/images/extracted/{doc_id}/
+    This function is called automatically after a PDF is uploaded.
+    It uses the pdf-extractor Docker container to extract images from the PDF
+    and saves them to: /workspace/{user_id}/images/extracted/{doc_id}/
+    
+    Docker Integration:
+        Uses docker run with volume mounting to process PDFs safely in container:
+        - Input volume: {pdf_directory}:/INPUT
+        - Output volume: {output_directory}:/OUTPUT
+        - Environment: INPUT_PATH=/INPUT/{filename}, OUTPUT_PATH=/OUTPUT
+        - Image: pdf-extractor:latest
     
     Args:
         doc_id: Document ID
@@ -385,40 +395,48 @@ def figure_extraction_hook(
         
     Returns:
         Tuple of (extracted_image_count, extraction_errors)
-        - extracted_image_count: Number of figures successfully extracted
+        - extracted_image_count: Number of images successfully extracted
         - extraction_errors: List of error messages encountered during extraction
-        
-    Example implementation:
-        - Use PyPDF2 or pdfplumber to read PDF
-        - Extract images using pdf2image or PIL
-        - Save images to extraction output path
-        - Return count and any errors
         
     Raises:
         Should NOT raise exceptions. Instead, return errors in the list.
     """
-    # TODO: Implement figure extraction logic
-    # For now, return placeholder values
+    from app.utils.docker_extraction import extract_images_with_docker
     
     try:
-        # This is where you would:
-        # 1. Open the PDF file
-        # 2. Extract figures/images
-        # 3. Save to get_extraction_output_path(user_id, doc_id)
-        # 4. Track any errors
-        # 5. Return (image_count, errors_list)
+        logger.info(
+            f"Starting figure extraction for doc_id={doc_id}, user_id={user_id}\n"
+            f"  PDF file: {pdf_file_path}"
+        )
         
-        # Placeholder implementation
-        extraction_errors = []
-        extracted_image_count = 0
+        # Use Docker container for extraction
+        extracted_count, extraction_errors = extract_images_with_docker(
+            doc_id=doc_id,
+            user_id=user_id,
+            pdf_file_path=pdf_file_path,
+            docker_image="pdf-extractor:latest"
+        )
         
-        # TODO: Replace with actual extraction logic
+        if extracted_count > 0:
+            logger.info(
+                f"Successfully extracted {extracted_count} images "
+                f"for doc_id={doc_id}"
+            )
+        elif extraction_errors:
+            logger.warning(
+                f"Extraction completed with errors for doc_id={doc_id}: "
+                f"{extraction_errors}"
+            )
+        else:
+            logger.warning(f"No images extracted for doc_id={doc_id}")
         
-        return extracted_image_count, extraction_errors
+        return extracted_count, extraction_errors
     
     except Exception as e:
         # Don't raise - return as error in list
-        return 0, [f"Extraction failed: {str(e)}"]
+        error_msg = f"Extraction failed: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        return 0, [error_msg]
 
 
 # ============================================================================
