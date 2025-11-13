@@ -112,11 +112,7 @@ def extract_images_with_docker(
             f"Docker extraction starting for doc_id={doc_id}"
         )
         
-        # Note: We cannot validate host_pdf_dir exists in the worker container
-        # because the worker can only see /app/workspace, not the absolute host path
-        # Docker daemon on the host will validate the paths when mounting
-        # So we skip the validation and let Docker report errors if paths are wrong
-        
+                      
         # Build Docker command with host paths
         # These paths will be mounted by Docker daemon running on the host
         docker_command = [
