@@ -107,19 +107,9 @@ def extract_images_with_docker(
             # Do the same for output directory
             rel_output = output_dir[len("/app/workspace"):]
             host_output_dir = workspace_path + rel_output
-            
-            logger.info(
-                f"Path conversion (worker to host):\n"
-                f"  Container path: {pdf_dir}\n"
-                f"  Host path: {host_pdf_dir}\n"
-                f"  WORKSPACE_PATH: {workspace_path}"
-            )
         
-        logger.info(
-            f"Starting Docker extraction for doc_id={doc_id}\n"
-            f"  PDF (container): {pdf_file_path}\n"
-            f"  PDF mount src: {host_pdf_dir}\n"
-            f"  Output mount src: {host_output_dir}"
+        logger.debug(
+            f"Docker extraction starting for doc_id={doc_id}"
         )
         
         # Note: We cannot validate host_pdf_dir exists in the worker container
@@ -139,8 +129,6 @@ def extract_images_with_docker(
             docker_image  # Docker image name
         ]
         
-        logger.info(f"Executing Docker command: {' '.join(docker_command)}")
-        
         # Execute Docker container
         result = subprocess.run(
             docker_command,
@@ -149,11 +137,10 @@ def extract_images_with_docker(
             timeout=300  # 5 minutes timeout
         )
         
-        # Log Docker output
-        if result.stdout:
-            logger.info(f"Docker stdout:\n{result.stdout}")
-        if result.stderr:
-            logger.warning(f"Docker stderr:\n{result.stderr}")
+        # Log Docker output on errors only
+        if result.returncode != 0:
+            if result.stderr:
+                logger.warning(f"Docker error: {result.stderr}")
         
         # Check if Docker command succeeded
         if result.returncode != 0:
@@ -202,23 +189,11 @@ def extract_images_with_docker(
                     'mime_type': mime_type
                 })
             
-            logger.info(
-                f"Docker extraction completed for doc_id={doc_id}\n"
-                f"  Extracted images: {extracted_image_count}\n"
-                f"  Files: {extracted_files}"
-            )
+            logger.debug(f"Extracted {extracted_image_count} images for doc_id={doc_id}")
             
             # If no images extracted and no errors, might be a PDF with no images
             if extracted_image_count == 0 and not extraction_errors:
-                # Check Docker output for clues
-                if result.stdout and "No images" in result.stdout:
-                    logger.info(f"Docker reported no images found in PDF")
-                    extraction_errors.append("PDF contains no extractable images")
-                elif result.stdout and "error" in result.stdout.lower():
-                    logger.warning(f"Docker output suggests error: {result.stdout}")
-                    extraction_errors.append(f"Docker warning: {result.stdout}")
-                else:
-                    logger.warning(f"No images extracted but no errors - PDF may have no images")
+                extraction_errors.append("PDF contains no extractable images")
         else:
             error_msg = f"Output directory not created: {output_dir}"
             logger.warning(error_msg)

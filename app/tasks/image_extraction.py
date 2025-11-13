@@ -86,7 +86,6 @@ def extract_images_from_document(self, doc_id: str, user_id: str, pdf_path: str)
                     "uploaded_date": datetime.utcnow()
                 }
                 images_col.insert_one(image_doc)
-                logger.info(f"Inserted image record for {image_file['filename']}")
         
         # Update with final results
         documents_col.update_one(

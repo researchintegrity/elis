@@ -297,7 +297,7 @@ def get_user_storage_usage(user_id: str) -> int:
                 total_size += file_path.stat().st_size
     except Exception as e:
         # Log but don't raise - return what we can
-        print(f"Warning: Error calculating storage for user {user_id}: {str(e)}")
+        logger.warning(f"Error calculating storage for user {user_id}: {str(e)}")
     
     return total_size
 
@@ -405,11 +405,6 @@ def figure_extraction_hook(
     from app.utils.docker_extraction import extract_images_with_docker
     
     try:
-        logger.info(
-            f"Starting figure extraction for doc_id={doc_id}, user_id={user_id}\n"
-            f"  PDF file: {pdf_file_path}"
-        )
-        
         # Use Docker container for extraction
         extracted_count, extraction_errors, extracted_files = extract_images_with_docker(
             doc_id=doc_id,
@@ -419,18 +414,9 @@ def figure_extraction_hook(
         )
         
         if extracted_count > 0:
-            logger.info(
-                f"Successfully extracted {extracted_count} images "
-                f"for doc_id={doc_id}\n"
-                f"  Files: {[f['filename'] for f in extracted_files]}"
-            )
+            logger.debug(f"Extracted {extracted_count} images for doc_id={doc_id}")
         elif extraction_errors:
-            logger.warning(
-                f"Extraction completed with errors for doc_id={doc_id}: "
-                f"{extraction_errors}"
-            )
-        else:
-            logger.warning(f"No images extracted for doc_id={doc_id}")
+            logger.warning(f"Extraction errors for doc_id={doc_id}: {extraction_errors}")
         
         return extracted_count, extraction_errors, extracted_files
     
@@ -478,7 +464,7 @@ def update_user_storage_in_db(user_id: str) -> int:
         )
     except Exception as e:
         # Log but don't raise - storage tracking should not block operations
-        print(f"Warning: Failed to update storage_used_bytes for user {user_id}: {str(e)}")
+        logger.warning(f"Failed to update storage_used_bytes for user {user_id}: {str(e)}")
     
     return current_usage
 
