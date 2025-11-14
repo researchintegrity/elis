@@ -5,12 +5,18 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 from datetime import datetime
 from typing import Optional
 from bson import ObjectId
+from app.config.settings import (
+    USERNAME_MIN_LENGTH,
+    USERNAME_MAX_LENGTH,
+    PASSWORD_MIN_LENGTH,
+    FULL_NAME_MAX_LENGTH,
+)
 
 
 class UserLogin(BaseModel):
     """User login credentials"""
-    username: str = Field(..., min_length=3, description="Username or email")
-    password: str = Field(..., min_length=4, description="User password")
+    username: str = Field(..., min_length=USERNAME_MIN_LENGTH, description="Username or email")
+    password: str = Field(..., min_length=PASSWORD_MIN_LENGTH, description="User password")
 
     class Config:
         schema_extra = {
@@ -23,9 +29,9 @@ class UserLogin(BaseModel):
 
 class UserRegister(BaseModel):
     """User registration data"""
-    username: str = Field(..., min_length=3, max_length=50, description="Unique username")
+    username: str = Field(..., min_length=USERNAME_MIN_LENGTH, max_length=USERNAME_MAX_LENGTH, description="Unique username")
     email: EmailStr = Field(..., description="Valid email address")
-    password: str = Field(..., min_length=4, description="Password (min 4 characters)")
+    password: str = Field(..., min_length=PASSWORD_MIN_LENGTH, description=f"Password (min {PASSWORD_MIN_LENGTH} characters)")
     full_name: Optional[str] = Field(None, description="User's full name")
 
     class Config:
@@ -41,7 +47,7 @@ class UserRegister(BaseModel):
 
 class UserUpdate(BaseModel):
     """User profile update data"""
-    full_name: Optional[str] = Field(None, max_length=100, description="User's full name")
+    full_name: Optional[str] = Field(None, max_length=FULL_NAME_MAX_LENGTH, description="User's full name")
     email: Optional[EmailStr] = Field(None, description="Valid email address")
 
     class Config:
@@ -177,6 +183,14 @@ class DocumentCreate(BaseModel):
         }
 
 
+class ExtractedImageInfo(BaseModel):
+    """Information about an extracted image"""
+    filename: str
+    path: str
+    size: int
+    mime_type: str
+
+
 class DocumentResponse(BaseModel):
     """Document response model"""
     id: str = Field(alias="_id")
@@ -187,6 +201,7 @@ class DocumentResponse(BaseModel):
     extraction_status: str = Field(default="pending", description="pending|completed|failed")
     extracted_image_count: int = 0
     extraction_errors: list[str] = Field(default_factory=list)
+    extracted_images: list[ExtractedImageInfo] = Field(default_factory=list)
     uploaded_date: datetime
     user_storage_used: int = 0  # Total bytes used by user
     user_storage_remaining: int = 1073741824  # Remaining quota
@@ -201,7 +216,7 @@ class DocumentResponse(BaseModel):
 
     class Config:
         from_attributes = True
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "_id": "507f1f77bcf86cd799439012",
                 "user_id": "507f1f77bcf86cd799439011",

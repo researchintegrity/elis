@@ -4,8 +4,9 @@ Image extraction tasks for async processing
 from celery import current_task
 from celery.exceptions import SoftTimeLimitExceeded
 from app.celery_config import celery_app
-from app.db.mongodb import get_documents_collection
+from app.db.mongodb import get_documents_collection, get_images_collection
 from app.utils.file_storage import figure_extraction_hook
+from app.config.settings import CELERY_MAX_RETRIES, CELERY_RETRY_BACKOFF_BASE
 from bson import ObjectId
 from datetime import datetime
 import logging
@@ -13,7 +14,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-@celery_app.task(bind=True, max_retries=3, name="tasks.extract_images")
+@celery_app.task(bind=True, max_retries=CELERY_MAX_RETRIES, name="tasks.extract_images")
 def extract_images_from_document(self, doc_id: str, user_id: str, pdf_path: str):
     """
     Extract images from PDF document asynchronously
@@ -53,7 +54,7 @@ def extract_images_from_document(self, doc_id: str, user_id: str, pdf_path: str)
         )
         
         # Run extraction using existing hook
-        extracted_count, extraction_errors = figure_extraction_hook(
+        extracted_count, extraction_errors, extracted_files = figure_extraction_hook(
             doc_id=doc_id,
             user_id=user_id,
             pdf_file_path=pdf_path
@@ -72,6 +73,21 @@ def extract_images_from_document(self, doc_id: str, user_id: str, pdf_path: str)
             f"extracted={extracted_count}, errors={len(extraction_errors)}"
         )
         
+        # Store individual image records in images collection
+        images_col = get_images_collection()
+        if extracted_files:
+            for image_file in extracted_files:
+                image_doc = {
+                    "user_id": user_id,
+                    "filename": image_file['filename'],
+                    "file_path": image_file['path'],
+                    "file_size": image_file['size'],
+                    "source_type": "extracted",
+                    "document_id": doc_id,
+                    "uploaded_date": datetime.utcnow()
+                }
+                images_col.insert_one(image_doc)
+        
         # Update with final results
         documents_col.update_one(
             {"_id": ObjectId(doc_id)},
@@ -79,6 +95,7 @@ def extract_images_from_document(self, doc_id: str, user_id: str, pdf_path: str)
                 "$set": {
                     "extraction_status": extraction_status,
                     "extracted_image_count": extracted_count,
+                    "extracted_images": extracted_files,  # Store detailed file info
                     "extraction_errors": extraction_errors,
                     "extraction_completed_at": datetime.utcnow()
                 }
@@ -110,7 +127,7 @@ def extract_images_from_document(self, doc_id: str, user_id: str, pdf_path: str)
         logger.error(f"Extraction error for doc_id={doc_id}: {str(exc)}", exc_info=True)
         
         # Retry with exponential backoff
-        countdown = 60 * (2 ** self.request.retries)
-        logger.info(f"Retrying in {countdown} seconds (attempt {self.request.retries + 1}/3)")
+        countdown = 60 * (CELERY_RETRY_BACKOFF_BASE ** self.request.retries)
+        logger.info(f"Retrying in {countdown} seconds (attempt {self.request.retries + 1}/{CELERY_MAX_RETRIES})")
         
         raise self.retry(exc=exc, countdown=countdown)

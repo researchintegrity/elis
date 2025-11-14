@@ -2,19 +2,23 @@
 File storage utilities for document and image upload handling
 """
 import shutil
+import logging
 from pathlib import Path
 from typing import Tuple, Optional
 from datetime import datetime
 
+logger = logging.getLogger(__name__)
+
+# Import storage configuration
+from app.config.storage_quota import MAX_PDF_FILE_SIZE, MAX_IMAGE_FILE_SIZE, DEFAULT_USER_STORAGE_QUOTA
+from app.config.settings import EXTRACTION_SUBDIRECTORY, PDF_EXTRACTOR_DOCKER_IMAGE
+
 # Base upload directory
 UPLOAD_DIR = Path("workspace")
 
-# Import quota configuration
-from app.config.storage_quota import MAX_PDF_FILE_SIZE, MAX_IMAGE_FILE_SIZE, DEFAULT_USER_STORAGE_QUOTA
-
 # File size limits (in bytes) - imported from config
-MAX_PDF_SIZE = MAX_PDF_FILE_SIZE  # 50MB
-MAX_IMAGE_SIZE = MAX_IMAGE_FILE_SIZE  # 10MB
+MAX_PDF_SIZE = MAX_PDF_FILE_SIZE
+MAX_IMAGE_SIZE = MAX_IMAGE_FILE_SIZE
 
 # Allowed file extensions
 ALLOWED_PDF_EXTENSIONS = {".pdf"}
@@ -294,7 +298,7 @@ def get_user_storage_usage(user_id: str) -> int:
                 total_size += file_path.stat().st_size
     except Exception as e:
         # Log but don't raise - return what we can
-        print(f"Warning: Error calculating storage for user {user_id}: {str(e)}")
+        logger.warning(f"Error calculating storage for user {user_id}: {str(e)}")
     
     return total_size
 
@@ -370,13 +374,20 @@ def figure_extraction_hook(
     doc_id: str,
     user_id: str,
     pdf_file_path: str
-) -> Tuple[int, list[str]]:
+) -> Tuple[int, list[str], list]:
     """
-    Placeholder function for figure extraction from PDF
+    Extract figures from PDF using Docker container
     
-    This function will be called automatically after a PDF is uploaded.
-    It should extract figures from the PDF and save them to:
-    /workspace/{user_id}/images/extracted/{doc_id}/
+    This function is called automatically after a PDF is uploaded.
+    It uses the pdf-extractor Docker container to extract images from the PDF
+    and saves them to: /workspace/{user_id}/images/extracted/{doc_id}/
+    
+    Docker Integration:
+        Uses docker run with volume mounting to process PDFs safely in container:
+        - Input volume: {pdf_directory}:/INPUT
+        - Output volume: {output_directory}:/OUTPUT
+        - Environment: INPUT_PATH=/INPUT/{filename}, OUTPUT_PATH=/OUTPUT
+        - Image: pdf-extractor:latest
     
     Args:
         doc_id: Document ID
@@ -384,41 +395,37 @@ def figure_extraction_hook(
         pdf_file_path: Path to the PDF file
         
     Returns:
-        Tuple of (extracted_image_count, extraction_errors)
-        - extracted_image_count: Number of figures successfully extracted
+        Tuple of (extracted_image_count, extraction_errors, extracted_files)
+        - extracted_image_count: Number of images successfully extracted
         - extraction_errors: List of error messages encountered during extraction
-        
-    Example implementation:
-        - Use PyPDF2 or pdfplumber to read PDF
-        - Extract images using pdf2image or PIL
-        - Save images to extraction output path
-        - Return count and any errors
+        - extracted_files: List of dicts with extracted image metadata
         
     Raises:
         Should NOT raise exceptions. Instead, return errors in the list.
     """
-    # TODO: Implement figure extraction logic
-    # For now, return placeholder values
+    from app.utils.docker_extraction import extract_images_with_docker
     
     try:
-        # This is where you would:
-        # 1. Open the PDF file
-        # 2. Extract figures/images
-        # 3. Save to get_extraction_output_path(user_id, doc_id)
-        # 4. Track any errors
-        # 5. Return (image_count, errors_list)
+        # Use Docker container for extraction
+        extracted_count, extraction_errors, extracted_files = extract_images_with_docker(
+            doc_id=doc_id,
+            user_id=user_id,
+            pdf_file_path=pdf_file_path,
+            docker_image=PDF_EXTRACTOR_DOCKER_IMAGE
+        )
         
-        # Placeholder implementation
-        extraction_errors = []
-        extracted_image_count = 0
+        if extracted_count > 0:
+            logger.debug(f"Extracted {extracted_count} images for doc_id={doc_id}")
+        elif extraction_errors:
+            logger.warning(f"Extraction errors for doc_id={doc_id}: {extraction_errors}")
         
-        # TODO: Replace with actual extraction logic
-        
-        return extracted_image_count, extraction_errors
+        return extracted_count, extraction_errors, extracted_files
     
     except Exception as e:
         # Don't raise - return as error in list
-        return 0, [f"Extraction failed: {str(e)}"]
+        error_msg = f"Extraction failed: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        return 0, [error_msg], []
 
 
 # ============================================================================
@@ -458,7 +465,7 @@ def update_user_storage_in_db(user_id: str) -> int:
         )
     except Exception as e:
         # Log but don't raise - storage tracking should not block operations
-        print(f"Warning: Failed to update storage_used_bytes for user {user_id}: {str(e)}")
+        logger.warning(f"Failed to update storage_used_bytes for user {user_id}: {str(e)}")
     
     return current_usage
 
