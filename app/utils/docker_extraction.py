@@ -5,6 +5,18 @@ import subprocess
 import os
 import logging
 from typing import Tuple, List, Dict
+from app.config.settings import (
+    PDF_EXTRACTOR_DOCKER_IMAGE,
+    DOCKER_EXTRACTION_TIMEOUT,
+    DOCKER_COMPOSE_EXTRACTION_TIMEOUT,
+    DOCKER_IMAGE_CHECK_TIMEOUT,
+    APP_WORKSPACE_PREFIX,
+    EXTRACTION_SUBDIRECTORY,
+    SUPPORTED_IMAGE_EXTENSIONS,
+    IMAGE_MIME_TYPES,
+    is_container_path,
+    get_container_path_length,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -13,7 +25,7 @@ def extract_images_with_docker(
     doc_id: str,
     user_id: str,
     pdf_file_path: str,
-    docker_image: str = "pdf-extractor:latest"
+    docker_image: str = None
 ) -> Tuple[int, List[str], List[Dict]]:
     """
     Extract images from PDF using Docker container
@@ -51,6 +63,10 @@ def extract_images_with_docker(
     """
     extraction_errors = []
     extracted_image_count = 0
+    
+    # Use default Docker image if not specified
+    if docker_image is None:
+        docker_image = PDF_EXTRACTOR_DOCKER_IMAGE
     
     try:
         # Validate PDF file exists
@@ -90,7 +106,7 @@ def extract_images_with_docker(
         host_output_dir = output_dir
         
         # If path starts with /app/workspace, we're in the worker container
-        if pdf_dir.startswith("/app/workspace"):
+        if is_container_path(pdf_dir):
             # Get the host workspace path from environment variable set in docker-compose
             workspace_path = os.getenv("WORKSPACE_PATH")
             
@@ -101,11 +117,11 @@ def extract_images_with_docker(
                 return 0, extraction_errors, []
             
             # Convert: /app/workspace/user_id/pdfs/... → /host/path/workspace/user_id/pdfs/...
-            rel_path = pdf_dir[len("/app/workspace"):]  # Get relative path like /user_id/pdfs
+            rel_path = pdf_dir[get_container_path_length():]  # Get relative path like /user_id/pdfs
             host_pdf_dir = workspace_path + rel_path
             
             # Do the same for output directory
-            rel_output = output_dir[len("/app/workspace"):]
+            rel_output = output_dir[get_container_path_length():]
             host_output_dir = workspace_path + rel_output
         
         logger.debug(
@@ -130,7 +146,7 @@ def extract_images_with_docker(
             docker_command,
             capture_output=True,
             text=True,
-            timeout=300  # 5 minutes timeout
+            timeout=DOCKER_EXTRACTION_TIMEOUT
         )
         
         # Log Docker output on errors only
@@ -153,7 +169,7 @@ def extract_images_with_docker(
         if os.path.exists(output_dir):
             extracted_files = [
                 f for f in os.listdir(output_dir)
-                if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp', '.tiff', '.bmp'))
+                if f.lower().endswith(SUPPORTED_IMAGE_EXTENSIONS)
             ]
             extracted_image_count = len(extracted_files)
             
@@ -164,19 +180,10 @@ def extract_images_with_docker(
                 
                 # Determine MIME type based on extension
                 ext = os.path.splitext(filename)[1].lower()
-                mime_type_map = {
-                    '.png': 'image/png',
-                    '.jpg': 'image/jpeg',
-                    '.jpeg': 'image/jpeg',
-                    '.gif': 'image/gif',
-                    '.webp': 'image/webp',
-                    '.tiff': 'image/tiff',
-                    '.bmp': 'image/bmp'
-                }
-                mime_type = mime_type_map.get(ext, 'image/unknown')
+                mime_type = IMAGE_MIME_TYPES.get(ext, 'image/unknown')
                 
                 # Store relative path for database: user_id/images/extracted/doc_id/filename
-                rel_path = f"{user_id}/images/extracted/{doc_id}/{filename}"
+                rel_path = f"{user_id}/{EXTRACTION_SUBDIRECTORY}/{doc_id}/{filename}"
                 
                 extracted_file_list.append({
                     'filename': filename,
@@ -198,7 +205,7 @@ def extract_images_with_docker(
         return extracted_image_count, extraction_errors, extracted_file_list
         
     except subprocess.TimeoutExpired:
-        error_msg = f"Docker extraction timeout for doc_id={doc_id} (5 minutes)"
+        error_msg = f"Docker extraction timeout for doc_id={doc_id} ({DOCKER_EXTRACTION_TIMEOUT}s)"
         logger.error(error_msg)
         extraction_errors.append(error_msg)
         return 0, extraction_errors, []
@@ -278,7 +285,7 @@ def extract_images_with_docker_compose(
             docker_compose_command,
             capture_output=True,
             text=True,
-            timeout=300
+            timeout=DOCKER_COMPOSE_EXTRACTION_TIMEOUT
         )
         
         if result.returncode != 0:
@@ -291,7 +298,7 @@ def extract_images_with_docker_compose(
         if os.path.exists(output_dir):
             extracted_files = [
                 f for f in os.listdir(output_dir)
-                if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp', '.tiff', '.bmp'))
+                if f.lower().endswith(SUPPORTED_IMAGE_EXTENSIONS)
             ]
             extracted_image_count = len(extracted_files)
             logger.info(f"Extracted {extracted_image_count} images")
@@ -309,9 +316,9 @@ def extract_images_with_docker_compose(
         return 0, [error_msg]
 
 
-def verify_docker_image_exists(image_name: str = "pdf-extractor:latest") -> bool:
+def verify_docker_image_exists(image_name: str = None) -> bool:
     """
-    Verify if Docker image exists locally
+    Check if a Docker image exists locally
     
     Args:
         image_name: Docker image name (default: pdf-extractor:latest)
@@ -319,11 +326,14 @@ def verify_docker_image_exists(image_name: str = "pdf-extractor:latest") -> bool
     Returns:
         True if image exists, False otherwise
     """
+    if image_name is None:
+        image_name = PDF_EXTRACTOR_DOCKER_IMAGE
+        
     try:
         result = subprocess.run(
             ["docker", "image", "inspect", image_name],
             capture_output=True,
-            timeout=10
+            timeout=DOCKER_IMAGE_CHECK_TIMEOUT
         )
         exists = result.returncode == 0
         if exists:

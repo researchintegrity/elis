@@ -9,15 +9,16 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
+# Import storage configuration
+from app.config.storage_quota import MAX_PDF_FILE_SIZE, MAX_IMAGE_FILE_SIZE, DEFAULT_USER_STORAGE_QUOTA
+from app.config.settings import EXTRACTION_SUBDIRECTORY, PDF_EXTRACTOR_DOCKER_IMAGE
+
 # Base upload directory
 UPLOAD_DIR = Path("workspace")
 
-# Import quota configuration
-from app.config.storage_quota import MAX_PDF_FILE_SIZE, MAX_IMAGE_FILE_SIZE, DEFAULT_USER_STORAGE_QUOTA
-
 # File size limits (in bytes) - imported from config
-MAX_PDF_SIZE = MAX_PDF_FILE_SIZE  # 50MB
-MAX_IMAGE_SIZE = MAX_IMAGE_FILE_SIZE  # 10MB
+MAX_PDF_SIZE = MAX_PDF_FILE_SIZE
+MAX_IMAGE_SIZE = MAX_IMAGE_FILE_SIZE
 
 # Allowed file extensions
 ALLOWED_PDF_EXTENSIONS = {".pdf"}
@@ -410,7 +411,7 @@ def figure_extraction_hook(
             doc_id=doc_id,
             user_id=user_id,
             pdf_file_path=pdf_file_path,
-            docker_image="pdf-extractor:latest"
+            docker_image=PDF_EXTRACTOR_DOCKER_IMAGE
         )
         
         if extracted_count > 0:

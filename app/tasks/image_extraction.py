@@ -6,6 +6,7 @@ from celery.exceptions import SoftTimeLimitExceeded
 from app.celery_config import celery_app
 from app.db.mongodb import get_documents_collection, get_images_collection
 from app.utils.file_storage import figure_extraction_hook
+from app.config.settings import CELERY_MAX_RETRIES, CELERY_RETRY_BACKOFF_BASE
 from bson import ObjectId
 from datetime import datetime
 import logging
@@ -13,7 +14,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-@celery_app.task(bind=True, max_retries=3, name="tasks.extract_images")
+@celery_app.task(bind=True, max_retries=CELERY_MAX_RETRIES, name="tasks.extract_images")
 def extract_images_from_document(self, doc_id: str, user_id: str, pdf_path: str):
     """
     Extract images from PDF document asynchronously
@@ -126,7 +127,7 @@ def extract_images_from_document(self, doc_id: str, user_id: str, pdf_path: str)
         logger.error(f"Extraction error for doc_id={doc_id}: {str(exc)}", exc_info=True)
         
         # Retry with exponential backoff
-        countdown = 60 * (2 ** self.request.retries)
-        logger.info(f"Retrying in {countdown} seconds (attempt {self.request.retries + 1}/3)")
+        countdown = 60 * (CELERY_RETRY_BACKOFF_BASE ** self.request.retries)
+        logger.info(f"Retrying in {countdown} seconds (attempt {self.request.retries + 1}/{CELERY_MAX_RETRIES})")
         
         raise self.retry(exc=exc, countdown=countdown)
