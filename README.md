@@ -1,6 +1,6 @@
 # ELIS Scientific Image Analysis System
 
-ELIS is a document management and image analysis system built with FastAPI, MongoDB, and Celery. It provides user authentication, document upload with async PDF processing, and image extraction capabilities.
+ELIS is an open-source scientific document and image integrity analysis system.
 
 ## Features
 
