@@ -7,12 +7,11 @@ from fastapi import APIRouter, Query, HTTPException, Depends
 from datetime import datetime
 from typing import Optional, List
 from app.schemas import ApiResponse, PaginatedResponse
-from app.db.mongodb import MongoDBConnection
+from app.db.mongodb import get_database, get_users_collection, get_documents_collection, get_images_collection
 from app.utils.security import get_current_user
 from bson import ObjectId
 
 router = APIRouter(prefix="/api", tags=["api"])
-db = MongoDBConnection()
 
 
 # ============================================================================
@@ -60,15 +59,15 @@ async def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
         user_id = str(current_user.get("_id"))
         
         # Get document count
-        doc_collection = db.db["documents"]
+        doc_collection = get_documents_collection()
         doc_count = doc_collection.count_documents({"user_id": user_id})
         
         # Get image count
-        img_collection = db.db["images"]
+        img_collection = get_images_collection()
         img_count = img_collection.count_documents({"user_id": user_id})
         
         # Get user storage info
-        user_collection = db.db["users"]
+        user_collection = get_users_collection()
         user = user_collection.find_one({"_id": ObjectId(user_id)})
         
         storage_used = user.get("storage_used", 0) if user else 0
@@ -125,7 +124,7 @@ async def list_documents(
     """
     try:
         user_id = str(current_user.get("_id"))
-        collection = db.db["documents"]
+        collection = get_documents_collection()
         
         # Build filter
         filter_query = {"user_id": user_id}
@@ -195,7 +194,7 @@ async def get_document_detail(
     """
     try:
         user_id = str(current_user.get("_id"))
-        collection = db.db["documents"]
+        collection = get_documents_collection()
         
         try:
             doc_oid = ObjectId(document_id)
@@ -211,7 +210,7 @@ async def get_document_detail(
         document["_id"] = str(document["_id"])
         
         # Get associated images
-        img_collection = db.db["images"]
+        img_collection = get_images_collection()
         images = list(img_collection.find({"document_id": document_id}))
         for img in images:
             img["_id"] = str(img["_id"])
@@ -257,14 +256,14 @@ async def delete_document(
         except:
             raise HTTPException(status_code=400, detail="Invalid document ID format")
         
-        doc_collection = db.db["documents"]
+        doc_collection = get_documents_collection()
         document = doc_collection.find_one({"_id": doc_oid, "user_id": user_id})
         
         if not document:
             raise HTTPException(status_code=404, detail="Document not found")
         
         # Delete associated images
-        img_collection = db.db["images"]
+        img_collection = get_images_collection()
         img_collection.delete_many({"document_id": document_id})
         
         # Delete document
@@ -317,7 +316,7 @@ async def list_images(
     """
     try:
         user_id = str(current_user.get("_id"))
-        collection = db.db["images"]
+        collection = get_images_collection()
         
         # Build filter
         filter_query = {"user_id": user_id}
@@ -389,7 +388,7 @@ async def get_image_detail(
     """
     try:
         user_id = str(current_user.get("_id"))
-        collection = db.db["images"]
+        collection = get_images_collection()
         
         try:
             img_oid = ObjectId(image_id)
@@ -437,7 +436,7 @@ async def delete_image(
     """
     try:
         user_id = str(current_user.get("_id"))
-        collection = db.db["images"]
+        collection = get_images_collection()
         
         try:
             img_oid = ObjectId(image_id)
@@ -494,14 +493,14 @@ async def global_search(
         user_id = str(current_user.get("_id"))
         
         # Search documents
-        doc_collection = db.db["documents"]
+        doc_collection = get_documents_collection()
         documents = list(doc_collection.find({
             "user_id": user_id,
             "filename": {"$regex": query, "$options": "i"}
         }))
         
         # Search images
-        img_collection = db.db["images"]
+        img_collection = get_images_collection()
         images = list(img_collection.find({
             "user_id": user_id,
             "filename": {"$regex": query, "$options": "i"}
