@@ -319,3 +319,52 @@ class ImageInDB(BaseModel):
     source_type: str = "uploaded"
     document_id: Optional[str] = None
     uploaded_date: datetime = Field(default_factory=datetime.utcnow)
+
+
+# ============================================================================
+# API RESPONSE MODELS
+# ============================================================================
+
+class ApiResponse(BaseModel):
+    """Standardized API response wrapper"""
+    success: bool = Field(..., description="Whether the request was successful")
+    message: str = Field(..., description="Response message")
+    data: Optional[dict] = Field(None, description="Response data payload")
+    errors: Optional[list] = Field(None, description="List of errors if any")
+    timestamp: datetime = Field(default_factory=datetime.utcnow, description="Response timestamp")
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "success": True,
+                "message": "Operation completed successfully",
+                "data": {"id": "507f1f77bcf86cd799439011"},
+                "errors": None,
+                "timestamp": "2025-01-01T10:00:00"
+            }
+        }
+
+
+class PaginatedResponse(BaseModel):
+    """Paginated API response with metadata"""
+    success: bool = Field(..., description="Whether the request was successful")
+    message: str = Field(..., description="Response message")
+    data: list = Field(..., description="List of items")
+    pagination: dict = Field(..., description="Pagination metadata")
+    timestamp: datetime = Field(default_factory=datetime.utcnow, description="Response timestamp")
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "success": True,
+                "message": "Items retrieved successfully",
+                "data": [{"id": "507f1f77bcf86cd799439011"}],
+                "pagination": {
+                    "current_page": 1,
+                    "total_pages": 10,
+                    "page_size": 10,
+                    "total_items": 100
+                },
+                "timestamp": "2025-01-01T10:00:00"
+            }
+        }

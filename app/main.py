@@ -5,7 +5,7 @@ FastAPI application with MongoDB authentication
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routes import auth, users, documents, images
+from app.routes import auth, users, documents, images, api
 from app.db.mongodb import db_connection
 
 # Create FastAPI app
@@ -31,6 +31,7 @@ app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(documents.router)
 app.include_router(images.router)
+app.include_router(api.router)
 
 
 # ============================================================================
