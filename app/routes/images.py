@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 from app.schemas import ImageResponse
-from app.db.mongodb import get_images_collection, get_documents_collection
+from app.db.mongodb import get_images_collection, get_documents_collection, get_annotations_collection
 from app.utils.security import get_current_user
 from app.utils.file_storage import (
     validate_image,
@@ -358,7 +358,16 @@ async def delete_image(
     
     try:
         # Delete image file from disk
-        delete_file(img["file_path"])
+        success, error = delete_file(img["file_path"])
+        if not success:
+            raise Exception(f"Failed to delete image file: {error}")
+        
+        # Delete associated annotations
+        annotations_col = get_annotations_collection()
+        annotations_col.delete_many({
+            "image_id": image_id,
+            "user_id": str(current_user["_id"])
+        })
         
         # Delete image record from MongoDB
         images_col.delete_one({"_id": ObjectId(image_id)})

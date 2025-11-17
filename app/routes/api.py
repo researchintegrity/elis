@@ -10,6 +10,7 @@ from app.schemas import ApiResponse, PaginatedResponse
 from app.db.mongodb import get_database, get_users_collection, get_documents_collection, get_images_collection
 from app.utils.security import get_current_user
 from bson import ObjectId
+from app.services.document_service import delete_document_and_artifacts
 
 router = APIRouter(prefix="/api", tags=["api"])
 
@@ -232,48 +233,49 @@ async def get_document_detail(
     "/documents/{document_id}",
     response_model=ApiResponse,
     summary="Delete Document",
-    description="Delete a document and its associated images"
+    description="Delete a document and its associated images and annotations"
 )
 async def delete_document(
     document_id: str,
     current_user: dict = Depends(get_current_user)
 ):
     """
-    Delete a document and all its associated images
+    Delete a document and all its associated images and annotations
+    
+    Delegates to the document service which handles all cleanup:
+    - PDF file deletion from disk
+    - Extraction directory deletion
+    - Annotation deletion (cascade)
+    - Image deletion from MongoDB
+    - Document record deletion
+    - Storage quota update
     
     Args:
         document_id: Document ID to delete
         current_user: Currently authenticated user
         
     Returns:
-        Success message
+        Success message with deletion statistics
     """
     try:
-        user_id = str(current_user.get("_id"))
-        
-        try:
-            doc_oid = ObjectId(document_id)
-        except:
-            raise HTTPException(status_code=400, detail="Invalid document ID format")
-        
-        doc_collection = get_documents_collection()
-        document = doc_collection.find_one({"_id": doc_oid, "user_id": user_id})
-        
-        if not document:
-            raise HTTPException(status_code=404, detail="Document not found")
-        
-        # Delete associated images
-        img_collection = get_images_collection()
-        img_collection.delete_many({"document_id": document_id})
-        
-        # Delete document
-        result = doc_collection.delete_one({"_id": doc_oid})
+        result = await delete_document_and_artifacts(
+            document_id=document_id,
+            user_id=str(current_user.get("_id"))
+        )
         
         return ApiResponse(
             success=True,
             message="Document and associated images deleted successfully",
-            data={"deleted_id": document_id}
+            data=result
         )
+    except ValueError as e:
+        error_msg = str(e)
+        if "Invalid document ID" in error_msg:
+            raise HTTPException(status_code=400, detail=error_msg)
+        elif "Document not found" in error_msg:
+            raise HTTPException(status_code=404, detail=error_msg)
+        else:
+            raise HTTPException(status_code=500, detail=error_msg)
     except HTTPException:
         raise
     except Exception as e:

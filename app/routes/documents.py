@@ -7,6 +7,9 @@ from typing import List
 from bson import ObjectId
 from datetime import datetime
 from pathlib import Path
+import logging
+
+logger = logging.getLogger(__name__)
 
 from app.schemas import DocumentResponse, ImageResponse
 from app.db.mongodb import get_documents_collection, get_images_collection
@@ -15,8 +18,6 @@ from app.utils.file_storage import (
     validate_pdf,
     save_pdf_file,
     get_extraction_output_path,
-    delete_directory,
-    delete_file,
     check_storage_quota,
     get_quota_status,
     update_user_storage_in_db
@@ -25,6 +26,7 @@ from app.config.storage_quota import DEFAULT_USER_STORAGE_QUOTA
 from app.tasks.image_extraction import extract_images_from_document
 from celery.result import AsyncResult
 from app.celery_config import celery_app
+from app.services.document_service import delete_document_and_artifacts
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -372,54 +374,33 @@ async def delete_document(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    Delete a document and its associated extracted images
+    Delete a document and its associated extracted images and annotations
     
     Args:
         doc_id: Document ID
         current_user: Current authenticated user
     """
-    documents_col = get_documents_collection()
-    images_col = get_images_collection()
-    
-    # Verify document belongs to user
     try:
-        doc = documents_col.find_one({
-            "_id": ObjectId(doc_id),
-            "user_id": str(current_user["_id"])
-        })
-    except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid document ID"
+        await delete_document_and_artifacts(
+            document_id=doc_id,
+            user_id=str(current_user["_id"])
         )
-    
-    if not doc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found"
-        )
-    
-    try:
-        # Delete PDF file
-        delete_file(doc["file_path"])
-        
-        # Delete extraction directory
-        extraction_dir = f"workspace/{current_user['_id']}/images/extracted/{doc_id}"
-        delete_directory(extraction_dir)
-        
-        # Delete extracted images from MongoDB
-        images_col.delete_many({
-            "document_id": doc_id,
-            "user_id": str(current_user["_id"]),
-            "source_type": "extracted"
-        })
-        
-        # Delete document record
-        documents_col.delete_one({"_id": ObjectId(doc_id)})
-        
-        # Update user storage in database
-        update_user_storage_in_db(str(current_user["_id"]))
-    
+    except ValueError as e:
+        if "Invalid document ID" in str(e):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e)
+            )
+        elif "Document not found" in str(e):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=str(e)
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=str(e)
+            )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
