@@ -368,3 +368,89 @@ class PaginatedResponse(BaseModel):
                 "timestamp": "2025-01-01T10:00:00"
             }
         }
+
+
+# ============================================================================
+# Annotation Schemas
+# ============================================================================
+
+class CoordinateInfo(BaseModel):
+    """Annotation coordinates"""
+    x: float = Field(..., description="X coordinate (percentage)")
+    y: float = Field(..., description="Y coordinate (percentage)")
+    width: float = Field(..., description="Width (percentage)")
+    height: float = Field(..., description="Height (percentage)")
+    unit: str = Field(default="%", description="Unit of measurement")
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "x": 25.5,
+                "y": 30.1,
+                "width": 10.2,
+                "height": 15.8,
+                "unit": "%"
+            }
+        }
+
+
+class AnnotationCreate(BaseModel):
+    """Annotation creation request"""
+    image_id: str = Field(..., description="ID of the image being annotated")
+    text: str = Field(..., min_length=1, max_length=1000, description="Annotation text")
+    coords: CoordinateInfo = Field(..., description="Annotation coordinates")
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "image_id": "507f1f77bcf86cd799439013",
+                "text": "Núcleo celular identificado",
+                "coords": {
+                    "x": 25.5,
+                    "y": 30.1,
+                    "width": 10.2,
+                    "height": 15.8,
+                    "unit": "%"
+                }
+            }
+        }
+
+
+class AnnotationResponse(BaseModel):
+    """Annotation response model"""
+    id: str = Field(alias="_id")
+    user_id: str
+    image_id: str
+    text: str
+    coords: CoordinateInfo
+    created_at: datetime
+    updated_at: datetime
+
+    @field_validator('id', mode='before')
+    @classmethod
+    def convert_object_id(cls, v):
+        """Convert MongoDB ObjectId to string"""
+        if isinstance(v, ObjectId):
+            return str(v)
+        return v
+
+    class Config:
+        from_attributes = True
+        schema_extra = {
+            "example": {
+                "_id": "507f1f77bcf86cd799439014",
+                "user_id": "507f1f77bcf86cd799439011",
+                "image_id": "507f1f77bcf86cd799439013",
+                "text": "Núcleo celular identificado",
+                "coords": {
+                    "x": 25.5,
+                    "y": 30.1,
+                    "width": 10.2,
+                    "height": 15.8,
+                    "unit": "%"
+                },
+                "created_at": "2025-01-01T10:00:00",
+                "updated_at": "2025-01-01T10:00:00"
+            }
+        }
+
