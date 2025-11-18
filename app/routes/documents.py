@@ -11,7 +11,13 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-from app.schemas import DocumentResponse, ImageResponse
+from app.schemas import (
+    DocumentResponse,
+    ImageResponse,
+    WatermarkRemovalRequest,
+    WatermarkRemovalInitiationResponse,
+    WatermarkRemovalStatusResponse
+)
 from app.db.mongodb import get_documents_collection, get_images_collection
 from app.utils.security import get_current_user
 from app.utils.file_storage import (
@@ -23,6 +29,10 @@ from app.utils.file_storage import (
 )
 from app.config.storage_quota import DEFAULT_USER_STORAGE_QUOTA
 from app.tasks.image_extraction import extract_images_from_document
+from app.services.watermark_removal_service import (
+    initiate_watermark_removal,
+    get_watermark_removal_status
+)
 from celery.result import AsyncResult
 from app.celery_config import celery_app
 from app.services.document_service import delete_document_and_artifacts
@@ -425,3 +435,158 @@ async def get_task_status(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to retrieve task status: {str(e)}"
         )
+
+
+# ============================================================================
+# WATERMARK REMOVAL ENDPOINTS
+# ============================================================================
+
+@router.post(
+    "/{doc_id}/remove-watermark",
+    response_model=WatermarkRemovalInitiationResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    tags=["documents"]
+)
+async def initiate_watermark_removal_endpoint(
+    doc_id: str,
+    request: WatermarkRemovalRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Initiate watermark removal for a PDF document
+    
+    This endpoint queues an async task to remove watermarks from a PDF.
+    The original PDF is preserved, and a new cleaned version is created.
+    
+    Query the status using: GET /documents/{doc_id}/watermark-removal/status
+    
+    Args:
+        doc_id: Document ID to remove watermark from
+        request: WatermarkRemovalRequest with aggressiveness_mode (1, 2, or 3)
+        current_user: Current authenticated user
+        
+    Returns:
+        WatermarkRemovalInitiationResponse with task info
+        
+    Raises:
+        HTTP 400: Invalid aggressiveness mode or document is not a PDF
+        HTTP 404: Document not found
+        HTTP 500: Server error
+    """
+    try:
+        user_id_str = str(current_user["_id"])
+        
+        result = await initiate_watermark_removal(
+            document_id=doc_id,
+            user_id=user_id_str,
+            aggressiveness_mode=request.aggressiveness_mode
+        )
+        
+        return result
+    
+    except ValueError as e:
+        error_msg = str(e)
+        if "Invalid aggressiveness mode" in error_msg:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=error_msg
+            )
+        elif "Invalid document ID" in error_msg:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=error_msg
+            )
+        elif "Document not found" in error_msg:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=error_msg
+            )
+        elif "not a PDF" in error_msg:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=error_msg
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=error_msg
+            )
+    except Exception as e:
+        logger.error(f"Error initiating watermark removal: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to initiate watermark removal: {str(e)}"
+        )
+
+
+@router.get(
+    "/{doc_id}/watermark-removal/status",
+    response_model=WatermarkRemovalStatusResponse,
+    tags=["documents"]
+)
+async def get_watermark_removal_status_endpoint(
+    doc_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get watermark removal status for a document
+    
+    Query the status of an ongoing or completed watermark removal task.
+    
+    Status values:
+    - not_started: Watermark removal has not been initiated
+    - queued: Task is queued in the task queue
+    - processing: Watermark removal is in progress
+    - completed: Watermark removal completed successfully
+    - failed: Watermark removal failed
+    
+    When status is "completed", the response includes:
+    - output_filename: Name of the cleaned PDF
+    - output_size: Size of cleaned PDF in bytes
+    - cleaned_document_id: Document ID of the cleaned PDF for download
+    
+    Args:
+        doc_id: Document ID to check status for
+        current_user: Current authenticated user
+        
+    Returns:
+        WatermarkRemovalStatusResponse with current status
+        
+    Raises:
+        HTTP 404: Document not found
+        HTTP 500: Server error
+    """
+    try:
+        user_id_str = str(current_user["_id"])
+        
+        status_info = await get_watermark_removal_status(
+            document_id=doc_id,
+            user_id=user_id_str
+        )
+        
+        return status_info
+    
+    except ValueError as e:
+        error_msg = str(e)
+        if "Invalid document ID" in error_msg:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=error_msg
+            )
+        elif "Document not found" in error_msg:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=error_msg
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=error_msg
+            )
+    except Exception as e:
+        logger.error(f"Error retrieving watermark removal status: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve watermark removal status: {str(e)}"
+        )
+

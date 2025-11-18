@@ -443,3 +443,75 @@ class AnnotationResponse(BaseModel):
             }
         }
 
+
+# ============================================================================
+# Watermark Removal Schemas
+# ============================================================================
+
+class WatermarkRemovalRequest(BaseModel):
+    """Watermark removal request"""
+    aggressiveness_mode: int = Field(
+        default=2,
+        ge=1,
+        le=3,
+        description="Watermark removal aggressiveness (1=explicit only, 2=text+graphics, 3=all graphics)"
+    )
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "aggressiveness_mode": 2
+            }
+        }
+
+
+class WatermarkRemovalInitiationResponse(BaseModel):
+    """Watermark removal task initiation response"""
+    document_id: str
+    task_id: str
+    status: str = Field(description="Task status: queued")
+    aggressiveness_mode: int
+    message: str
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "document_id": "507f1f77bcf86cd799439012",
+                "task_id": "abc123def456",
+                "status": "queued",
+                "aggressiveness_mode": 2,
+                "message": "Watermark removal queued with mode 2"
+            }
+        }
+
+
+class WatermarkRemovalStatusResponse(BaseModel):
+    """Watermark removal status response"""
+    document_id: str
+    status: str = Field(description="Status: not_started|queued|processing|completed|failed")
+    aggressiveness_mode: Optional[int] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    message: Optional[str] = None
+    output_filename: Optional[str] = None
+    output_size: Optional[int] = None
+    cleaned_document_id: Optional[str] = None
+    error: Optional[str] = None
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "document_id": "507f1f77bcf86cd799439012",
+                "status": "completed",
+                "aggressiveness_mode": 2,
+                "started_at": "2025-01-01T10:00:00",
+                "completed_at": "2025-01-01T10:05:00",
+                "message": "Watermark removal successful",
+                "output_filename": "research_paper_watermark_removed_m2.pdf",
+                "output_size": 1990000,
+                "cleaned_document_id": "507f1f77bcf86cd799439015",
+                "error": None
+            }
+        }
+
+
