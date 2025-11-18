@@ -5,11 +5,14 @@ Provides unified endpoints with pagination, filtering, and standardized response
 
 from fastapi import APIRouter, Query, HTTPException, Depends
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional
 from app.schemas import ApiResponse, PaginatedResponse
-from app.db.mongodb import get_database, get_users_collection, get_documents_collection, get_images_collection
+from app.db.mongodb import get_users_collection, get_documents_collection, get_images_collection
 from app.utils.security import get_current_user
 from bson import ObjectId
+from app.services.document_service import delete_document_and_artifacts
+from app.services.image_service import delete_image_and_artifacts, list_images as list_images_service
+from app.services.resource_helpers import get_owned_resource
 
 router = APIRouter(prefix="/api", tags=["api"])
 
@@ -194,17 +197,14 @@ async def get_document_detail(
     """
     try:
         user_id = str(current_user.get("_id"))
-        collection = get_documents_collection()
         
-        try:
-            doc_oid = ObjectId(document_id)
-        except:
-            raise HTTPException(status_code=400, detail="Invalid document ID format")
-        
-        document = collection.find_one({"_id": doc_oid, "user_id": user_id})
-        
-        if not document:
-            raise HTTPException(status_code=404, detail="Document not found")
+        # Get document with ownership validation
+        document = await get_owned_resource(
+            get_documents_collection,
+            document_id,
+            user_id,
+            "Document"
+        )
         
         # Convert ObjectId to string
         document["_id"] = str(document["_id"])
@@ -232,48 +232,49 @@ async def get_document_detail(
     "/documents/{document_id}",
     response_model=ApiResponse,
     summary="Delete Document",
-    description="Delete a document and its associated images"
+    description="Delete a document and its associated images and annotations"
 )
 async def delete_document(
     document_id: str,
     current_user: dict = Depends(get_current_user)
 ):
     """
-    Delete a document and all its associated images
+    Delete a document and all its associated images and annotations
+    
+    Delegates to the document service which handles all cleanup:
+    - PDF file deletion from disk
+    - Extraction directory deletion
+    - Annotation deletion (cascade)
+    - Image deletion from MongoDB
+    - Document record deletion
+    - Storage quota update
     
     Args:
         document_id: Document ID to delete
         current_user: Currently authenticated user
         
     Returns:
-        Success message
+        Success message with deletion statistics
     """
     try:
-        user_id = str(current_user.get("_id"))
-        
-        try:
-            doc_oid = ObjectId(document_id)
-        except:
-            raise HTTPException(status_code=400, detail="Invalid document ID format")
-        
-        doc_collection = get_documents_collection()
-        document = doc_collection.find_one({"_id": doc_oid, "user_id": user_id})
-        
-        if not document:
-            raise HTTPException(status_code=404, detail="Document not found")
-        
-        # Delete associated images
-        img_collection = get_images_collection()
-        img_collection.delete_many({"document_id": document_id})
-        
-        # Delete document
-        result = doc_collection.delete_one({"_id": doc_oid})
+        result = await delete_document_and_artifacts(
+            document_id=document_id,
+            user_id=str(current_user.get("_id"))
+        )
         
         return ApiResponse(
             success=True,
             message="Document and associated images deleted successfully",
-            data={"deleted_id": document_id}
+            data=result
         )
+    except ValueError as e:
+        error_msg = str(e)
+        if "Invalid document ID" in error_msg:
+            raise HTTPException(status_code=400, detail=error_msg)
+        elif "Document not found" in error_msg:
+            raise HTTPException(status_code=404, detail=error_msg)
+        else:
+            raise HTTPException(status_code=500, detail=error_msg)
     except HTTPException:
         raise
     except Exception as e:
@@ -316,45 +317,33 @@ async def list_images(
     """
     try:
         user_id = str(current_user.get("_id"))
-        collection = get_images_collection()
-        
-        # Build filter
-        filter_query = {"user_id": user_id}
-        if source_type:
-            filter_query["source_type"] = source_type
-        if document_id:
-            filter_query["document_id"] = document_id
-        
-        # Get total count
-        total_items = collection.count_documents(filter_query)
-        total_pages = (total_items + per_page - 1) // per_page
-        
-        # Validate pagination
-        if page > total_pages and total_pages > 0:
-            page = total_pages
-        
-        # Calculate skip
-        skip = (page - 1) * per_page
         
         # Build sort order
         sort_order = -1 if order.lower() == "desc" else 1
         
-        # Query images
-        images = list(collection.find(filter_query)
-                     .sort(sort_by, sort_order)
-                     .skip(skip)
-                     .limit(per_page))
+        # Use service to get images (get all to calculate pagination)
+        result = await list_images_service(
+            user_id=user_id,
+            source_type=source_type,
+            document_id=document_id,
+            limit=per_page,
+            offset=(page - 1) * per_page,
+            sort_by=sort_by,
+            sort_order=sort_order
+        )
         
-        # Convert ObjectId to string
-        for img in images:
-            img["_id"] = str(img["_id"])
-            if "user_id" in img:
-                img["user_id"] = str(img["user_id"])
+        # Calculate pagination
+        total_items = result["total"]
+        total_pages = (total_items + per_page - 1) // per_page
+        
+        # Validate page
+        if page > total_pages and total_pages > 0:
+            page = total_pages
         
         return PaginatedResponse(
             success=True,
             message="Images retrieved successfully",
-            data=images,
+            data=result["images"],
             pagination={
                 "current_page": page,
                 "total_pages": total_pages,
@@ -362,6 +351,8 @@ async def list_images(
                 "total_items": total_items
             }
         )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -435,26 +426,26 @@ async def delete_image(
         Success message
     """
     try:
-        user_id = str(current_user.get("_id"))
-        collection = get_images_collection()
-        
-        try:
-            img_oid = ObjectId(image_id)
-        except:
-            raise HTTPException(status_code=400, detail="Invalid image ID format")
-        
-        image = collection.find_one({"_id": img_oid, "user_id": user_id})
-        
-        if not image:
-            raise HTTPException(status_code=404, detail="Image not found")
-        
-        result = collection.delete_one({"_id": img_oid})
+        result = await delete_image_and_artifacts(
+            image_id=image_id,
+            user_id=str(current_user.get("_id"))
+        )
         
         return ApiResponse(
             success=True,
             message="Image deleted successfully",
-            data={"deleted_id": image_id}
+            data=result
         )
+    except ValueError as e:
+        error_msg = str(e)
+        if "Invalid image ID" in error_msg:
+            raise HTTPException(status_code=400, detail=error_msg)
+        elif "not found" in error_msg:
+            raise HTTPException(status_code=404, detail=error_msg)
+        elif "Cannot delete" in error_msg:
+            raise HTTPException(status_code=403, detail=error_msg)
+        else:
+            raise HTTPException(status_code=500, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:
