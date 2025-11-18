@@ -438,7 +438,7 @@ async def get_task_status(
 
 
 # ============================================================================
-# WATERMARK REMOVAL ENDPOINTS
+# WATERMARK REMOVAL ENDPOINTS (BEFORE /{doc_id} routes to avoid path conflicts)
 # ============================================================================
 
 @router.post(
@@ -589,4 +589,3 @@ async def get_watermark_removal_status_endpoint(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to retrieve watermark removal status: {str(e)}"
         )
-

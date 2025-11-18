@@ -8,6 +8,7 @@ from typing import Tuple, Dict
 from app.config.settings import (
     DOCKER_EXTRACTION_TIMEOUT,
     is_container_path,
+    get_container_path_length,
     PDF_WATERMARK_REMOVAL_DOCKER_IMAGE,
     WATERMARK_REMOVAL_OUTPUT_SUFFIX_TEMPLATE,
     WATERMARK_REMOVAL_DOCKER_WORKDIR,
@@ -103,12 +104,50 @@ def remove_watermark_with_docker(
         # Get the directory containing the PDF
         pdf_dir = os.path.dirname(pdf_file_path)
         
+        # Handle Docker running inside a container vs on the host:
+        # 
+        # In host environment:
+        #   - pdf_file_path will be relative or absolute to host
+        #   - We pass it directly to Docker since Docker daemon is on same host
+        #
+        # In container environment (Celery worker in Docker):
+        #   - pdf_file_path will be like "/app/workspace/user/pdfs/file.pdf"
+        #   - Docker daemon is on the host, needs the actual host path
+        #   - We need to convert using WORKSPACE_PATH environment variable
+        
+        host_pdf_dir = pdf_dir
+        
+        # If path starts with /app/workspace, we're in the worker container
+        workspace_path = os.getenv("WORKSPACE_PATH")
+        container_path_len = get_container_path_length()
+        
+        if is_container_path(pdf_dir):
+            # We're running in the worker container, need to convert paths for Docker daemon on host
+            logger.info(f"Detected container environment. Converting paths for host Docker daemon")
+            
+            if not workspace_path:
+                error_msg = "WORKSPACE_PATH environment variable not set"
+                logger.error(error_msg)
+                return False, error_msg, output_file_info
+            
+            # Convert: /app/workspace/user_id/pdfs/... → /host/path/workspace/user_id/pdfs/...
+            rel_path = pdf_dir[container_path_len:]  # Remove /app/workspace prefix
+            host_pdf_dir = workspace_path + rel_path
+            
+            logger.debug(
+                f"Container path conversion:\n"
+                f"  Original PDF dir: {pdf_dir}\n"
+                f"  Relative path: {rel_path}\n"
+                f"  WORKSPACE_PATH: {workspace_path}\n"
+                f"  Host PDF dir: {host_pdf_dir}"
+            )
+        
         # Construct Docker command (mount host pdf_dir to container workdir)
         docker_command = [
             "docker",
             "run",
             "--rm",
-            "-v", f"{pdf_dir}:{WATERMARK_REMOVAL_DOCKER_WORKDIR}",
+            "-v", f"{host_pdf_dir}:{WATERMARK_REMOVAL_DOCKER_WORKDIR}",
             docker_image,
             "-i", f"{WATERMARK_REMOVAL_DOCKER_WORKDIR}/{pdf_filename}",
             "-o", f"{WATERMARK_REMOVAL_DOCKER_WORKDIR}/{output_filename}",
