@@ -8,7 +8,8 @@ ELIS is an open-source scientific document and image integrity analysis system.
 - Document upload and management with storage quotas
 - Asynchronous PDF processing with Celery workers
 - Image extraction and retrieval
-- Full test coverage with 62 passing tests
+- **Panel extraction from scientific images using YOLO-based panel-extractor**
+- Full test coverage with 62+ passing tests
 - Docker containerization for easy deployment
 - MongoDB for persistent storage
 - Redis for task queue and caching
@@ -18,31 +19,52 @@ ELIS is an open-source scientific document and image integrity analysis system.
 ```
 elis-system/
 ├── app/
-│   ├── main.py                 # Main FastAPI application
-│   ├── schemas.py              # Pydantic validation models
-│   ├── celery_config.py        # Celery configuration
-│   ├── routes/                 # API route handlers
-│   │   ├── auth.py             # Authentication endpoints
-│   │   ├── users.py            # User management endpoints
-│   │   ├── documents.py        # Document upload and management
-│   │   └── images.py           # Image retrieval and management
-│   ├── tasks/                  # Celery task definitions
-│   │   └── image_extraction.py # Async PDF image extraction
-│   ├── db/                     # Database layer
-│   │   └── mongodb.py          # MongoDB connection & configuration
-│   └── utils/                  # Utility functions
-│       ├── security.py         # JWT, password hashing
-│       └── file_storage.py     # File upload and management
-├── tests/                      # Test suite (62 tests)
-│   ├── conftest.py             # Pytest configuration and fixtures
-│   ├── test_document_upload.py # Document and image tests
-│   └── test_user_operations.py # User management tests
-├── workspace/                  # User-uploaded files (created at runtime)
-├── docker-compose.yml          # Multi-container orchestration
-├── Dockerfile                  # API container definition
-├── Dockerfile.worker           # Celery worker container definition
-├── requirements.txt            # Python dependencies
-└── README.md                   # This file
+│   ├── main.py                      # FastAPI application
+│   ├── schemas.py                   # Pydantic validation models
+│   ├── celery_config.py             # Celery configuration
+│   ├── routes/                      # API endpoints
+│   │   ├── auth.py                  # Authentication
+│   │   ├── users.py                 # User management
+│   │   ├── documents.py             # Document upload/management
+│   │   ├── images.py                # Image & panel management
+│   │   ├── annotations.py           # Annotations
+│   │   └── api.py                   # General API
+│   ├── tasks/                       # Celery async tasks
+│   │   ├── image_extraction.py      # PDF → images extraction
+│   │   └── panel_extraction.py      # Panel extraction from images
+│   ├── services/                    # Business logic layer
+│   │   ├── document_service.py      # Document operations
+│   │   ├── image_service.py         # Image operations
+│   │   └── panel_extraction_service.py  # Panel extraction logic
+│   ├── db/                          # Database layer
+│   │   └── mongodb.py               # MongoDB connection
+│   ├── config/                      # Configuration
+│   │   ├── settings.py              # App settings
+│   │   └── storage_quota.py         # Storage management
+│   └── utils/                       # Utilities
+│       ├── security.py              # JWT, password hashing
+│       ├── file_storage.py          # File operations
+│       ├── docker_extraction.py     # PDF extraction Docker wrapper
+│       └── docker_panel_extractor.py # Panel extraction Docker wrapper
+├── tests/                           # Test suite (28+ tests)
+│   ├── conftest.py                  # Pytest configuration
+│   ├── test_user_operations.py      # User management tests
+│   ├── test_document_upload.py      # Document & image tests
+│   ├── test_docker_extraction.py    # Docker integration tests
+│   ├── test_panel_extraction.py     # Panel extraction unit tests
+│   └── test_panel_extraction_docker.py  # Panel extraction Docker tests
+├── system_modules/                  # External services
+│   ├── pdf-image-extraction/        # PDF extraction Docker image
+│   ├── panel-extractor/             # Panel extraction Docker image
+│   ├── watermark-removal/           # Watermark removal Docker image
+│   └── front-end-platform/          # Frontend application
+├── datasets/                        # Sample datasets for testing
+├── docker-compose.yml               # Multi-container orchestration
+├── Dockerfile                       # API container
+├── Dockerfile.worker                # Celery worker container
+├── requirements.txt                 # Python dependencies
+├── pytest.ini                       # Pytest configuration
+└── README.md                        # This file
 ```
 
 ## Getting Started
@@ -295,6 +317,180 @@ Returns paginated list of user documents with storage quota information.
 GET /documents/{document_id}
 Authorization: Bearer <access_token>
 ```
+
+#### Delete Document
+
+```http
+DELETE /documents/{document_id}
+Authorization: Bearer <access_token>
+```
+
+### Image Management Endpoints
+
+#### List Images
+
+```http
+GET /images
+Authorization: Bearer <access_token>
+```
+
+Returns paginated list of user images with quota information.
+
+#### Get Image Details
+
+```http
+GET /images/{image_id}
+Authorization: Bearer <access_token>
+```
+
+#### Delete Image
+
+```http
+DELETE /images/{image_id}
+Authorization: Bearer <access_token>
+```
+
+### Panel Extraction Endpoints
+
+Panel extraction identifies and extracts individual scientific figures/panels from images using YOLO-based deep learning models.
+
+#### Initiate Panel Extraction
+
+```http
+POST /images/extract-panels
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "image_ids": ["image_id_1", "image_id_2"],
+  "model_type": "default"
+}
+```
+
+Returns:
+```json
+{
+  "task_id": "celery-task-uuid",
+  "status": "PENDING",
+  "image_ids": ["image_id_1", "image_id_2"],
+  "message": "Panel extraction task queued"
+}
+```
+
+#### Check Panel Extraction Status
+
+```http
+GET /images/extract-panels/status/{task_id}
+Authorization: Bearer <access_token>
+```
+
+Polling endpoint returns:
+- `PENDING`: Task still processing
+- `SUCCESS`: Completed, includes `extracted_panels` array
+- `FAILURE`: Failed, includes `error` message
+
+Response when completed:
+```json
+{
+  "task_id": "celery-task-uuid",
+  "status": "SUCCESS",
+  "image_ids": ["image_id_1"],
+  "extracted_panels_count": 3,
+  "extracted_panels": [
+    {
+      "id": "panel_object_id",
+      "filename": "panel_00001.png",
+      "file_path": "/workspace/user_id/images/panels/panel_00001.png",
+      "file_size": 15234,
+      "source_type": "panel",
+      "source_image_id": "image_id_1",
+      "panel_id": "1",
+      "panel_type": "Graphs",
+      "bbox": {
+        "x0": 92.0,
+        "y0": 48.0,
+        "x1": 629.0,
+        "y1": 430.0
+      },
+      "uploaded_date": "2025-01-15T10:30:00Z"
+    },
+    ...
+  ]
+}
+```
+
+#### List Panels from Image
+
+```http
+GET /images/{image_id}/panels
+Authorization: Bearer <access_token>
+```
+
+Returns all panels extracted from a source image, including metadata and bounding boxes.
+
+## Panel Extraction Architecture
+
+### Data Flow
+
+1. User calls `POST /images/extract-panels` with list of image IDs
+2. API validates images and queues async Celery task (returns `202 Accepted` with task_id)
+3. Celery worker executes `extract_panels_from_images()` task:
+   - Retrieves images from MongoDB
+   - Calls Docker panel-extractor container
+   - Parses PANELS.csv output
+   - Maps FIGNAME → source_image_id via database lookup
+   - Creates MongoDB document for each extracted panel
+   - Saves panel images to `workspace/{user_id}/images/panels/`
+4. User polls `GET /images/extract-panels/status/{task_id}` to check progress
+5. When completed, panel documents are returned with full metadata
+
+### PANELS.csv Format
+
+The panel-extractor Docker container outputs a CSV file with the following format:
+
+```csv
+FIGNAME,ID,LABEL,X0,Y0,X1,Y1
+fig1,1,Graphs,92.0,48.0,629.0,430.0
+fig1,2,Graphs,755.0,48.0,1413.0,430.0
+```
+
+Where:
+- **FIGNAME**: Filename of the source image (without extension)
+- **ID**: Panel identifier from the YOLO model
+- **LABEL**: Panel type classification (e.g., "Graphs", "Blots", "Charts")
+- **X0, Y0, X1, Y1**: Bounding box coordinates (top-left and bottom-right corners)
+
+### Data Model
+
+```python
+class Panel(MongoDB Document):
+    _id: ObjectId              # Unique panel ID
+    user_id: str              # User who owns the image
+    filename: str             # Panel image filename
+    file_path: str            # Path to panel image file
+    file_size: int            # Panel image size in bytes
+    source_type: str          # "panel" (indicates extracted panel)
+    source_image_id: ObjectId # Link to source image
+    panel_id: str             # ID from PANELS.csv
+    panel_type: str           # Classification from YOLO model
+    bbox: {                   # Bounding box coordinates
+        x0: float,
+        y0: float,
+        x1: float,
+        y1: float
+    }
+    uploaded_date: datetime   # When extracted
+    created_at: datetime      # When document created
+```
+
+### Implementation Files
+
+- **`app/utils/docker_panel_extractor.py`**: Docker orchestration and PANELS.csv parsing
+- **`app/tasks/panel_extraction.py`**: Celery async task with retry logic
+- **`app/services/panel_extraction_service.py`**: Business logic and validation
+- **`app/routes/images.py`**: API endpoints (3 new endpoints)
+- **`app/schemas.py`**: Pydantic request/response schemas
+- **`app/config/settings.py`**: Configuration constants
 
 #### Delete Document
 
@@ -556,30 +752,83 @@ REDIS_URL=redis://redis:6379/0
 - **pytest-asyncio**: Async test support
 - **httpx**: HTTP client for API testing
 
-## Development
+## Key Capabilities Summary
 
-### Adding New Endpoints
+### Document Processing
+- Upload PDF documents with storage quota management
+- Automatic extraction of images from PDFs (async with Celery)
+- Document status tracking and retrieval
 
-1. Create route function in appropriate file (`app/routes/`)
-2. Define Pydantic schemas in `app/schemas.py`
-3. Use dependency injection for security: `current_user: dict = Depends(get_current_active_user)`
-4. Return appropriate HTTP status codes
-5. Add tests to `tests/`
+### Image Management
+- Extracted image storage with user isolation
+- Image metadata tracking (source, dimensions, upload date)
+- Image retrieval by document or individual ID
+- Storage quota enforcement per user
 
-### Example New Endpoint
+### Panel Extraction (Scientific Image Analysis)
+- Extract individual panels/figures from scientific images
+- YOLO-based panel detection and classification
+- Bounding box coordinates for each panel
+- Panel type classification (Graphs, Blots, Charts, etc.)
+- Async task processing with status polling
 
-```python
-from fastapi import APIRouter, Depends, status
-from app.utils.security import get_current_active_user
-from app.schemas import UserResponse
+### User Management & Security
+- User registration and authentication with JWT
+- Password hashing with bcrypt
+- Role-based access control
+- Storage quota enforcement
+- User data isolation
 
-router = APIRouter(prefix="/example", tags=["Example"])
+### System Architecture
+- **API Layer**: FastAPI with automatic OpenAPI documentation
+- **Async Processing**: Celery workers with Redis message broker
+- **Database**: MongoDB for flexible document storage
+- **Docker Integration**: Container wrappers for PDF and panel extraction
+- **Monitoring**: Flower dashboard for task monitoring
 
-@router.get("/protected", response_model=UserResponse)
-async def protected_endpoint(current_user: dict = Depends(get_current_active_user)):
-    """This endpoint requires authentication"""
-    return current_user
+## API Quick Reference
+
+All endpoints require JWT authentication (except `/auth/`).
+
+**Complete API documentation**: See **API_REFERENCE.md** for detailed endpoint specifications, examples, and response formats.
+
+Quick endpoint list:
+
+```bash
+# Auth
+POST /auth/register
+POST /auth/login
+
+# Users
+GET /users/me
+PUT /users/me
+DELETE /users/me
+
+# Documents
+POST /documents/upload
+GET /documents
+GET /documents/{doc_id}
+DELETE /documents/{doc_id}
+
+# Images
+GET /images
+GET /images/{image_id}
+DELETE /images/{image_id}
+
+# Panel Extraction
+POST /images/extract-panels              # Initiate (async, returns task_id)
+GET /images/extract-panels/status/{task_id}  # Check status
+GET /images/{image_id}/panels            # List panels from image
+
+# Annotations
+GET /annotations
+POST /annotations
+GET /annotations/{anno_id}
+PUT /annotations/{anno_id}
+DELETE /annotations/{anno_id}
 ```
+
+For complete request/response examples, curl commands, and error handling, see **API_REFERENCE.md**.
 
 ## Troubleshooting
 
@@ -606,3 +855,43 @@ async def protected_endpoint(current_user: dict = Depends(get_current_active_use
 - Ensure password meets minimum length (4 characters)
 - Check password matches stored hash
 - Verify bcrypt library is properly installed
+
+## Documentation & Resources
+
+### Key Documentation Files
+
+- **API_REFERENCE.md**: Complete API endpoint documentation with examples
+- **PANEL_EXTRACTION_IMPLEMENTATION_SUMMARY.md**: Panel extraction implementation details
+- **PANEL_EXTRACTION_TESTING_GUIDE.md**: Testing guide with 28+ passing tests
+- **PANELS_CSV_PARSING_GUIDE.md**: CSV format specification and parsing logic
+- **PANEL_DATA_MODEL_SPECIFICATION.md**: Database schema details
+- **PANEL_EXTRACTION_INTEGRATION_PLAN.md**: System integration architecture
+- **IMPLEMENTATION_CHECKLIST.md**: Implementation progress tracking
+
+### API Documentation
+
+- **API_REFERENCE.md** (in repo) - Detailed endpoint specs, curl examples, error handling
+- Swagger UI interactive docs: /docs (when running)
+- ReDoc alternative: /redoc (when running)
+
+### Running Tests
+
+```bash
+# All tests
+pytest tests/ -v
+
+# Panel extraction tests
+pytest tests/test_panel_extraction.py tests/test_panel_extraction_docker.py -v
+
+# With coverage
+pytest tests/ --cov=app --cov-report=html
+```
+
+### Docker Services
+
+Key images:
+- `panel-extractor:latest` - Panel extraction (YOLO-based)
+- `pdf-image-extraction:latest` - PDF to images
+- `panel-watermark-removal:latest` - Watermark removal
+- MongoDB, Redis, FastAPI (in docker-compose.yml)
+
