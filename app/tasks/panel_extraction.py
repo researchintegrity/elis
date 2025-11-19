@@ -14,7 +14,11 @@ from app.celery_config import celery_app
 from app.db.mongodb import get_images_collection
 from app.utils.docker_panel_extractor import extract_panels_with_docker
 from app.utils.file_storage import get_panel_output_path
-from app.config.settings import CELERY_MAX_RETRIES, CELERY_RETRY_BACKOFF_BASE
+from app.config.settings import (
+    CELERY_MAX_RETRIES, 
+    CELERY_RETRY_BACKOFF_BASE,
+    convert_container_path_to_host
+)
 
 logger = logging.getLogger(__name__)
 
@@ -174,10 +178,14 @@ def _create_panel_document(
 ) -> Dict[str, Any]:
     """Create a MongoDB document for an extracted panel.
 
+    Panel images are organized in the workspace as:
+    {workspace}/{user_id}/images/panels/{source_image_id}/{figname}/{filename}
+
     Args:
         panel_info: Dict with panel data from PANELS.csv parsing
         user_id: User who owns this panel
-        output_dir: Directory where panel image is stored
+        output_dir: Central panels directory where Docker outputs files
+                   Format: /app/workspace/{user_id}/images/panels
 
     Returns:
         MongoDB document ready to insert
@@ -188,27 +196,53 @@ def _create_panel_document(
     bbox = panel_info["bbox"]
     figname = panel_info["figname"]
 
-    # Construct panel image filename and path
-    # Panel images are typically named like panel_00001.png from the Docker container
-    # But we should also check if the actual file exists
-    panel_filename = f"{panel_id}.png"
-    panel_file_path = os.path.join(output_dir, panel_filename)
-
-    # Get file size if it exists
+    # Docker outputs files as: {figname}_{panel_id}_{panel_type}.png
+    # e.g., 1763555202_fig1_2_Blots.png
+    panel_filename = f"{figname}_{panel_id}_{panel_type}.png"
+    
+    # Docker outputs to temp location in output_dir root
+    temp_panel_path = os.path.join(output_dir, panel_filename)
+    
+    # Build organized location: {output_dir}/{source_image_id}/{figname}/
+    # This creates the source image and figure name hierarchy
+    organized_panel_dir = os.path.join(
+        output_dir,
+        image_id,
+        figname
+    )
+    os.makedirs(organized_panel_dir, exist_ok=True)
+    
+    # Final organized path
+    organized_panel_path = os.path.join(organized_panel_dir, panel_filename)
     file_size = 0
-    if os.path.exists(panel_file_path):
-        file_size = os.path.getsize(panel_file_path)
+    
+    if os.path.exists(temp_panel_path):
+        # Move the file to organized location
+        try:
+            import shutil
+            shutil.move(temp_panel_path, organized_panel_path)
+            file_size = os.path.getsize(organized_panel_path)
+            logger.info(f"Organized panel file: {temp_panel_path} → {organized_panel_path}")
+        except Exception as e:
+            logger.error(f"Error organizing panel file: {str(e)}")
+            # Fall back to temp location if move fails
+            organized_panel_path = temp_panel_path
+            if os.path.exists(temp_panel_path):
+                file_size = os.path.getsize(temp_panel_path)
+    elif os.path.exists(organized_panel_path):
+        # Already in organized location
+        file_size = os.path.getsize(organized_panel_path)
     else:
-        # Try alternative naming
-        panel_filename = f"panel_{panel_id.split('_')[-1]}.png"
-        panel_file_path = os.path.join(output_dir, panel_filename)
-        if os.path.exists(panel_file_path):
-            file_size = os.path.getsize(panel_file_path)
+        logger.warning(f"Panel file not found: {temp_panel_path} or {organized_panel_path}")
+
+    # Convert container path to host path for storage in MongoDB
+    final_file_path = convert_container_path_to_host(organized_panel_path)
+    logger.debug(f"Container path: {organized_panel_path} → Host path: {final_file_path}")
 
     panel_doc = {
         "user_id": user_id,
         "filename": panel_filename,
-        "file_path": panel_file_path,
+        "file_path": final_file_path,
         "file_size": file_size,
         "source_type": "panel",
         "source_image_id": image_id,

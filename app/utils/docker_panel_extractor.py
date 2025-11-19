@@ -105,8 +105,17 @@ def extract_panels_with_docker(
                 logger.error(error_msg)
                 return False, error_msg, output_info
 
-        # Create output directory for panels
-        output_dir = os.path.join(input_dir, "panels")
+        # Create output directory for panels, organized by source image
+        # Structure: {workspace}/{user_id}/images/panels/{source_image_id}/{figname}/
+        # All panels go to central panels directory, not alongside source images
+        
+        # Determine workspace root - go up from input_dir to find it
+        # input_dir format: /app/workspace/{user_id}/images/extracted/{doc_id}
+        #             or: /app/workspace/{user_id}/images/uploaded
+        # We need: /app/workspace/{user_id}/images/panels
+        
+        workspace_base = os.path.dirname(os.path.dirname(input_dir))  # Go up to 'images' directory
+        output_dir = os.path.join(workspace_base, "panels")
         os.makedirs(output_dir, exist_ok=True)
 
         logger.info(
@@ -151,6 +160,10 @@ def extract_panels_with_docker(
             )
 
         # Construct Docker command
+        # The panel extractor expects: --input-path IMAGE_PATH [IMAGE_PATH ...]
+        # and --output-path for the output directory
+        image_filenames = [os.path.basename(path) for path in image_paths]
+        
         docker_command = [
             "docker",
             "run",
@@ -158,9 +171,17 @@ def extract_panels_with_docker(
             "-v", f"{host_input_dir}:{PANEL_EXTRACTION_DOCKER_WORKDIR}/input",
             "-v", f"{host_output_dir}:{PANEL_EXTRACTION_DOCKER_WORKDIR}/output",
             docker_image,
-            "--input", f"{PANEL_EXTRACTION_DOCKER_WORKDIR}/input",
-            "--output", f"{PANEL_EXTRACTION_DOCKER_WORKDIR}/output"
+            "--input-path"
         ]
+        
+        # Add individual image file paths
+        for filename in image_filenames:
+            docker_command.append(f"{PANEL_EXTRACTION_DOCKER_WORKDIR}/input/{filename}")
+        
+        # Add output path
+        docker_command.extend([
+            "--output-path", f"{PANEL_EXTRACTION_DOCKER_WORKDIR}/output"
+        ])
 
         logger.info(f"Docker command: {' '.join(docker_command)}")
 
@@ -262,13 +283,20 @@ def _parse_panels_csv(
         ValueError: If FIGNAME cannot be matched to any image_id
         KeyError: If required columns are missing from CSV
     """
-    # Build mapping from filename to image_id
+    # Build mapping from filename stem (without extension) to image_id
+    # The CSV FIGNAME column contains stems like "1763554812_fig1"
+    # but image filenames include extensions like "1763554812_fig1.jpg"
     filename_to_id = {}
+    filename_stem_to_id = {}
     for path, img_id in zip(image_paths, image_ids):
         filename = os.path.basename(path)
         filename_to_id[filename] = img_id
+        # Also add the stem (filename without extension) for matching FIGNAME
+        filename_stem = os.path.splitext(filename)[0]
+        filename_stem_to_id[filename_stem] = img_id
 
     logger.debug(f"Filename to image_id mapping: {filename_to_id}")
+    logger.debug(f"Filename stem to image_id mapping: {filename_stem_to_id}")
 
     panels_data = []
 
@@ -287,15 +315,25 @@ def _parse_panels_csv(
         for row_num, row in enumerate(reader, start=2):  # Start at 2 (after header)
             try:
                 figname = row['FIGNAME'].strip()
+                logger.debug(f"Row {row_num}: Processing FIGNAME='{figname}'")
+                logger.debug(f"  Checking exact match in: {list(filename_to_id.keys())}")
+                logger.debug(f"  Checking stem match in: {list(filename_stem_to_id.keys())}")
 
                 # Map FIGNAME to image_id
-                if figname not in filename_to_id:
+                # First try exact match (with extension)
+                image_id = filename_to_id.get(figname)
+                logger.debug(f"  Exact match result: {image_id}")
+                
+                # If no exact match, try matching by stem (FIGNAME is usually just the stem)
+                if not image_id:
+                    image_id = filename_stem_to_id.get(figname)
+                    logger.debug(f"  Stem match result: {image_id}")
+                
+                if not image_id:
                     raise ValueError(
                         f"Row {row_num}: FIGNAME '{figname}' not found in source images. "
                         f"Available: {list(filename_to_id.keys())}"
                     )
-
-                image_id = filename_to_id[figname]
 
                 # Parse bbox coordinates
                 try:

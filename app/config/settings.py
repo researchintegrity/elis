@@ -149,3 +149,24 @@ def get_container_path_length() -> int:
         Length of /app/workspace
     """
     return len(APP_WORKSPACE_PREFIX)
+
+
+def convert_container_path_to_host(container_path: str) -> str:
+    """
+    Convert a container path to a relative workspace path.
+    
+    Args:
+        container_path: Path inside container (starts with /app/workspace)
+        
+    Returns:
+        Relative path from workspace root (without WORKSPACE_ROOT prefix)
+        
+    Examples:
+        /app/workspace/user_id/images/... → workspace/user_id/images/...
+    """
+    if is_container_path(container_path):
+        # Remove /app/workspace prefix, leaving just the relative path
+        rel_path = container_path[get_container_path_length():]  # Removes /app/workspace
+        # Add 'workspace' prefix back to create workspace-relative path
+        return "workspace" + rel_path
+    return container_path

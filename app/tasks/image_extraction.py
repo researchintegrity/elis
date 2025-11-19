@@ -75,6 +75,7 @@ def extract_images_from_document(self, doc_id: str, user_id: str, pdf_path: str)
         
         # Store individual image records in images collection
         images_col = get_images_collection()
+        extracted_files_with_ids = []
         if extracted_files:
             for image_file in extracted_files:
                 image_doc = {
@@ -86,7 +87,12 @@ def extract_images_from_document(self, doc_id: str, user_id: str, pdf_path: str)
                     "document_id": doc_id,
                     "uploaded_date": datetime.utcnow()
                 }
-                images_col.insert_one(image_doc)
+                result = images_col.insert_one(image_doc)
+                # Add the MongoDB _id to the extracted file info for later reference
+                image_file['mongodb_id'] = str(result.inserted_id)
+                extracted_files_with_ids.append(image_file)
+        else:
+            extracted_files_with_ids = extracted_files
         
         # Update with final results
         documents_col.update_one(
@@ -95,7 +101,7 @@ def extract_images_from_document(self, doc_id: str, user_id: str, pdf_path: str)
                 "$set": {
                     "extraction_status": extraction_status,
                     "extracted_image_count": extracted_count,
-                    "extracted_images": extracted_files,  # Store detailed file info
+                    "extracted_images": extracted_files_with_ids,  # Store detailed file info with MongoDB IDs
                     "extraction_errors": extraction_errors,
                     "extraction_completed_at": datetime.utcnow()
                 }

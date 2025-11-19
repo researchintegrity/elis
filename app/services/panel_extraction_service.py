@@ -39,9 +39,34 @@ def initiate_panel_extraction(
 
     for img_id in image_ids:
         try:
-            image_doc = images_col.find_one(
-                {"_id": ObjectId(img_id), "user_id": user_id}
-            )
+            # Try to validate as a direct ObjectId first
+            image_doc = None
+            try:
+                image_doc = images_col.find_one(
+                    {"_id": ObjectId(img_id), "user_id": user_id}
+                )
+            except:
+                # If img_id is not a valid ObjectId, try looking it up by filename
+                # Format might be: docid-idx-filename
+                pass
+            
+            # If not found by ID, try parsing the synthetic ID format (docid-idx-filename)
+            if not image_doc and "-" in img_id:
+                try:
+                    # Extract filename from synthetic ID
+                    # Format: docid-idx-filename or docid-idx-rest-of-filename
+                    parts = img_id.split("-", 2)
+                    if len(parts) >= 3:
+                        filename = parts[2]  # Everything after the second dash
+                        # Look up by filename and user
+                        image_doc = images_col.find_one(
+                            {"filename": filename, "user_id": user_id}
+                        )
+                        if image_doc:
+                            # Update the ID to the actual MongoDB ID
+                            img_id = str(image_doc["_id"])
+                except:
+                    pass
 
             if not image_doc:
                 raise ValueError(f"Image not found or does not belong to user: {img_id}")
@@ -240,10 +265,10 @@ def _convert_document_to_response(doc: Dict[str, Any]) -> Dict[str, Any]:
         doc: MongoDB document
 
     Returns:
-        Dictionary formatted for API response
+        Dictionary formatted for API response with _id field (for Pydantic alias)
     """
     return {
-        "id": str(doc.get("_id")),
+        "_id": str(doc.get("_id")),
         "user_id": doc.get("user_id"),
         "filename": doc.get("filename"),
         "file_path": doc.get("file_path"),
