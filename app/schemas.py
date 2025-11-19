@@ -3,7 +3,7 @@ Pydantic schemas for request/response validation
 """
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict, List
 from bson import ObjectId
 from app.config.settings import (
     USERNAME_MIN_LENGTH,
@@ -278,8 +278,20 @@ class ImageResponse(BaseModel):
     filename: str
     file_path: str
     file_size: int
-    source_type: str = Field(description="extracted|uploaded")
+    source_type: str = Field(description="extracted|uploaded|panel")
     document_id: Optional[str] = None
+    # Panel extraction fields (only for source_type='panel')
+    source_image_id: Optional[str] = None
+    panel_id: Optional[str] = None
+    panel_type: Optional[str] = None
+    bbox: Optional[Dict[str, float]] = None  # {x0, y0, x1, y1}
+    # PDF extraction metadata (only for source_type='extracted' from PDFs)
+    pdf_page: Optional[int] = None
+    page_bbox: Optional[Dict[str, float]] = None  # {x0, y0, x1, y1} in pixel coordinates
+    extraction_mode: Optional[str] = None  # 'normal' or 'safe'
+    original_filename: Optional[str] = None  # Original filename before _id rename
+    # Image type management
+    image_type: List[str] = Field(default_factory=list, description="User-editable image types (e.g., 'figure', 'table', 'equation')")
     uploaded_date: datetime
     user_storage_used: int = 0  # Total bytes used by user
     user_storage_remaining: int = 1073741824  # Remaining quota
@@ -298,11 +310,20 @@ class ImageResponse(BaseModel):
             "example": {
                 "_id": "507f1f77bcf86cd799439013",
                 "user_id": "507f1f77bcf86cd799439011",
-                "filename": "figure_1.png",
-                "file_path": "/workspace/507f1f77bcf86cd799439011/images/extracted/507f1f77bcf86cd799439012/figure_1.png",
+                "filename": "507f1f77bcf86cd799439013.png",
+                "file_path": "workspace/507f1f77bcf86cd799439011/images/extracted/507f1f77bcf86cd799439012/507f1f77bcf86cd799439013.png",
                 "file_size": 512000,
                 "source_type": "extracted",
                 "document_id": "507f1f77bcf86cd799439012",
+                "source_image_id": None,
+                "panel_id": None,
+                "panel_type": None,
+                "bbox": None,
+                "pdf_page": 4,
+                "page_bbox": {"x0": 40.0, "y0": 59.28, "x1": 553.6, "y1": 492.0},
+                "extraction_mode": "normal",
+                "original_filename": "p-4-x0-40.000-y0-59.280-x1-553.600-y1-492.000-1.png",
+                "image_type": ["figure"],
                 "uploaded_date": "2025-01-01T10:00:00",
                 "user_storage_used": 524288000,
                 "user_storage_remaining": 549453824
@@ -319,6 +340,36 @@ class ImageInDB(BaseModel):
     source_type: str = "uploaded"
     document_id: Optional[str] = None
     uploaded_date: datetime = Field(default_factory=datetime.utcnow)
+
+
+# ============================================================================
+# IMAGE TYPE MANAGEMENT MODELS
+# ============================================================================
+
+class ImageTypeListResponse(BaseModel):
+    """Response for listing all image types in the system"""
+    types: List[str] = Field(description="List of all unique image types used in system")
+    count: int = Field(description="Total number of unique types")
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "types": ["figure", "table", "equation", "text"],
+                "count": 4
+            }
+        }
+
+
+class ImageTypesUpdateRequest(BaseModel):
+    """Request to add types to an image"""
+    types: List[str] = Field(..., description="List of types to add (duplicates ignored)")
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "types": ["figure", "graph"]
+            }
+        }
 
 
 # ============================================================================
@@ -514,4 +565,87 @@ class WatermarkRemovalStatusResponse(BaseModel):
             }
         }
 
+
+# ============================================================================
+# Panel Extraction Schemas
+# ============================================================================
+
+class PanelExtractionRequest(BaseModel):
+    """Panel extraction request"""
+    image_ids: list[str] = Field(..., description="MongoDB IDs of selected images to extract panels from")
+    model_type: str = Field(
+        default="default",
+        description="Optional YOLO model selection"
+    )
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "image_ids": ["507f1f77bcf86cd799439013", "507f1f77bcf86cd799439014"],
+                "model_type": "default"
+            }
+        }
+
+
+class PanelExtractionInitiationResponse(BaseModel):
+    """Panel extraction task initiation response"""
+    task_id: str
+    status: str = Field(description="Task status: queued")
+    image_ids: list[str]
+    message: str
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "task_id": "abc123def456xyz",
+                "status": "queued",
+                "image_ids": ["507f1f77bcf86cd799439013", "507f1f77bcf86cd799439014"],
+                "message": "Panel extraction queued for 2 images"
+            }
+        }
+
+
+class PanelExtractionStatusResponse(BaseModel):
+    """Panel extraction status response"""
+    task_id: str
+    status: str = Field(description="Status: queued|processing|completed|failed")
+    image_ids: list[str]
+    extracted_panels_count: int = 0
+    extracted_panels: Optional[list[ImageResponse]] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    message: Optional[str] = None
+    error: Optional[str] = None
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "task_id": "abc123def456xyz",
+                "status": "completed",
+                "image_ids": ["507f1f77bcf86cd799439013"],
+                "extracted_panels_count": 3,
+                "extracted_panels": [
+                    {
+                        "_id": "507f1f77bcf86cd799439020",
+                        "user_id": "507f1f77bcf86cd799439011",
+                        "filename": "panel_00001.png",
+                        "file_path": "/workspace/507f1f77bcf86cd799439011/images/panels/panel_00001.png",
+                        "file_size": 45000,
+                        "source_type": "panel",
+                        "document_id": None,
+                        "source_image_id": "507f1f77bcf86cd799439013",
+                        "panel_id": "panel_00001",
+                        "panel_type": "Blots",
+                        "bbox": {"x0": 100.5, "y0": 150.3, "x1": 450.8, "y1": 520.2},
+                        "uploaded_date": "2025-01-01T10:05:00",
+                        "user_storage_used": 524288000,
+                        "user_storage_remaining": 549453824
+                    }
+                ],
+                "started_at": "2025-01-01T10:00:00",
+                "completed_at": "2025-01-01T10:02:30",
+                "message": "Panel extraction successful. Extracted 3 panels",
+                "error": None
+            }
+        }
 

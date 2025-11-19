@@ -4,19 +4,17 @@ Docker-based PDF watermark removal using pdf-watermark-removal container
 import subprocess
 import os
 import logging
-from typing import Tuple, List, Dict
+from typing import Tuple, Dict
 from app.config.settings import (
     DOCKER_EXTRACTION_TIMEOUT,
-    DOCKER_IMAGE_CHECK_TIMEOUT,
-    APP_WORKSPACE_PREFIX,
     is_container_path,
     get_container_path_length,
+    PDF_WATERMARK_REMOVAL_DOCKER_IMAGE,
+    WATERMARK_REMOVAL_OUTPUT_SUFFIX_TEMPLATE,
+    WATERMARK_REMOVAL_DOCKER_WORKDIR,
 )
 
 logger = logging.getLogger(__name__)
-
-# Docker image name for watermark removal
-PDF_WATERMARK_REMOVAL_DOCKER_IMAGE = "pdf-watermark-removal:latest"
 
 
 def remove_watermark_with_docker(
@@ -26,38 +24,40 @@ def remove_watermark_with_docker(
     aggressiveness_mode: int = 2,
     docker_image: str = None
 ) -> Tuple[bool, str, Dict]:
-    """
-    Remove watermark from PDF using Docker container
-    
-    Runs the pdf-watermark-removal Docker container to remove watermarks from a PDF file.
-    The container will process the PDF and save the cleaned version to the output directory.
-    
-    Docker Command:
-        docker run \\
-            -v $(pwd):/workspace \\
-            pdf-watermark-removal:latest \\
-            -i /workspace/input.pdf \\
-            -o /workspace/output.pdf \\
+    """Remove watermark from PDF using Docker container.
+
+    Runs the ``pdf-watermark-removal`` Docker container to remove watermarks from a
+    PDF file. The container will process the PDF and save the cleaned version to the
+    output directory.
+
+    Docker command example::
+
+        docker run \
+            -v $(pwd):/workspace \
+            pdf-watermark-removal:latest \
+            -i /workspace/input.pdf \
+            -o /workspace/output.pdf \
             -m 2
-    
+
     Args:
         doc_id: Document ID for tracking
         user_id: User ID for workspace organization
         pdf_file_path: Full path to the PDF file
         aggressiveness_mode: Watermark removal aggressiveness (1, 2, or 3)
-                           1 = explicit watermarks only
-                           2 = text + repeated graphics (default)
-                           3 = all graphics (most aggressive)
-        docker_image: Docker image to use (default: pdf-watermark-removal:latest)
-        
+            1 = explicit watermarks only
+            2 = text + repeated graphics (default)
+            3 = all graphics (most aggressive)
+        docker_image: Docker image to use (if not provided, uses configured default)
+
     Returns:
         Tuple of (success, status_message, output_file_info)
         - success: Boolean indicating if removal was successful
         - status_message: Human-readable status or error message
         - output_file_info: Dict with file info {filename, path, size, status}
-        
-    Raises:
-        Returns errors in tuple format instead of raising exceptions
+
+    Notes:
+        Errors are returned in the tuple instead of being raised so callers can
+        handle failures consistently.
     """
     output_file_info = {}
     
@@ -84,7 +84,8 @@ def remove_watermark_with_docker(
         # Get output filename (add suffix to avoid replacing original)
         pdf_filename = os.path.basename(pdf_file_path)
         pdf_name_without_ext = os.path.splitext(pdf_filename)[0]
-        output_filename = f"{pdf_name_without_ext}_watermark_removed_m{aggressiveness_mode}.pdf"
+        # Use suffix template from settings so filename patterns are configurable
+        output_filename = f"{pdf_name_without_ext}{WATERMARK_REMOVAL_OUTPUT_SUFFIX_TEMPLATE.format(mode=aggressiveness_mode)}"
         
         # Output will be in same directory as input
         output_dir = os.path.dirname(pdf_file_path)
@@ -103,15 +104,53 @@ def remove_watermark_with_docker(
         # Get the directory containing the PDF
         pdf_dir = os.path.dirname(pdf_file_path)
         
-        # Construct Docker command
+        # Handle Docker running inside a container vs on the host:
+        # 
+        # In host environment:
+        #   - pdf_file_path will be relative or absolute to host
+        #   - We pass it directly to Docker since Docker daemon is on same host
+        #
+        # In container environment (Celery worker in Docker):
+        #   - pdf_file_path will be like "/app/workspace/user/pdfs/file.pdf"
+        #   - Docker daemon is on the host, needs the actual host path
+        #   - We need to convert using WORKSPACE_PATH environment variable
+        
+        host_pdf_dir = pdf_dir
+        
+        # If path starts with /app/workspace, we're in the worker container
+        workspace_path = os.getenv("WORKSPACE_PATH")
+        container_path_len = get_container_path_length()
+        
+        if is_container_path(pdf_dir):
+            # We're running in the worker container, need to convert paths for Docker daemon on host
+            logger.info(f"Detected container environment. Converting paths for host Docker daemon")
+            
+            if not workspace_path:
+                error_msg = "WORKSPACE_PATH environment variable not set"
+                logger.error(error_msg)
+                return False, error_msg, output_file_info
+            
+            # Convert: /app/workspace/user_id/pdfs/... → /host/path/workspace/user_id/pdfs/...
+            rel_path = pdf_dir[container_path_len:]  # Remove /app/workspace prefix
+            host_pdf_dir = workspace_path + rel_path
+            
+            logger.debug(
+                f"Container path conversion:\n"
+                f"  Original PDF dir: {pdf_dir}\n"
+                f"  Relative path: {rel_path}\n"
+                f"  WORKSPACE_PATH: {workspace_path}\n"
+                f"  Host PDF dir: {host_pdf_dir}"
+            )
+        
+        # Construct Docker command (mount host pdf_dir to container workdir)
         docker_command = [
             "docker",
             "run",
             "--rm",
-            "-v", f"{pdf_dir}:/workspace",
+            "-v", f"{host_pdf_dir}:{WATERMARK_REMOVAL_DOCKER_WORKDIR}",
             docker_image,
-            "-i", f"/workspace/{pdf_filename}",
-            "-o", f"/workspace/{output_filename}",
+            "-i", f"{WATERMARK_REMOVAL_DOCKER_WORKDIR}/{pdf_filename}",
+            "-o", f"{WATERMARK_REMOVAL_DOCKER_WORKDIR}/{output_filename}",
             "-m", str(aggressiveness_mode)
         ]
         

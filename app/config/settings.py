@@ -20,6 +20,26 @@ import os
 # Docker image for PDF extraction
 PDF_EXTRACTOR_DOCKER_IMAGE = "pdf-extractor:latest"
 
+# Docker image for PDF watermark removal (system_modules/watermark-removal)
+PDF_WATERMARK_REMOVAL_DOCKER_IMAGE = "pdf-watermark-removal:latest"
+
+# Template for output filename suffix when creating watermark-removed PDFs.
+# Use format placeholder `{mode}` for aggressiveness mode.
+WATERMARK_REMOVAL_OUTPUT_SUFFIX_TEMPLATE = "_watermark_removed_m{mode}.pdf"
+
+# Working directory inside the watermark-removal Docker container
+WATERMARK_REMOVAL_DOCKER_WORKDIR = "/workspace"
+
+# Docker image for panel extraction (system_modules/panel-extractor)
+PANEL_EXTRACTOR_DOCKER_IMAGE = "panel-extractor:latest"
+
+# Working directory inside the panel-extractor Docker container
+PANEL_EXTRACTION_DOCKER_WORKDIR = "/workspace"
+
+# Panel extraction settings
+PANEL_EXTRACTION_TIMEOUT = 600  # 10 minutes (panel extraction can take longer)
+MAX_IMAGES_PER_EXTRACTION = 20  # Maximum number of images to process in one batch
+
 # Extraction timeouts (in seconds)
 DOCKER_EXTRACTION_TIMEOUT = 300  # 5 minutes
 DOCKER_COMPOSE_EXTRACTION_TIMEOUT = 300  # 5 minutes
@@ -129,3 +149,24 @@ def get_container_path_length() -> int:
         Length of /app/workspace
     """
     return len(APP_WORKSPACE_PREFIX)
+
+
+def convert_container_path_to_host(container_path: str) -> str:
+    """
+    Convert a container path to a relative workspace path.
+    
+    Args:
+        container_path: Path inside container (starts with /app/workspace)
+        
+    Returns:
+        Relative path from workspace root (without WORKSPACE_ROOT prefix)
+        
+    Examples:
+        /app/workspace/user_id/images/... → workspace/user_id/images/...
+    """
+    if is_container_path(container_path):
+        # Remove /app/workspace prefix, leaving just the relative path
+        rel_path = container_path[get_container_path_length():]  # Removes /app/workspace
+        # Add 'workspace' prefix back to create workspace-relative path
+        return "workspace" + rel_path
+    return container_path

@@ -6,10 +6,12 @@ from celery.exceptions import SoftTimeLimitExceeded
 from app.celery_config import celery_app
 from app.db.mongodb import get_documents_collection, get_images_collection
 from app.utils.file_storage import figure_extraction_hook
-from app.config.settings import CELERY_MAX_RETRIES, CELERY_RETRY_BACKOFF_BASE
+from app.utils.metadata_parser import parse_pdf_extraction_filename, is_pdf_extraction_filename
+from app.config.settings import CELERY_MAX_RETRIES, CELERY_RETRY_BACKOFF_BASE, convert_container_path_to_host
 from bson import ObjectId
 from datetime import datetime
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -75,18 +77,116 @@ def extract_images_from_document(self, doc_id: str, user_id: str, pdf_path: str)
         
         # Store individual image records in images collection
         images_col = get_images_collection()
+        extracted_files_with_ids = []
         if extracted_files:
             for image_file in extracted_files:
-                image_doc = {
-                    "user_id": user_id,
-                    "filename": image_file['filename'],
-                    "file_path": image_file['path'],
-                    "file_size": image_file['size'],
-                    "source_type": "extracted",
-                    "document_id": doc_id,
-                    "uploaded_date": datetime.utcnow()
-                }
-                images_col.insert_one(image_doc)
+                try:
+                    # Parse metadata from filename if it's a PDF extraction
+                    pdf_page = None
+                    page_bbox = None
+                    extraction_mode = None
+                    original_filename = image_file['filename']
+                    
+                    if is_pdf_extraction_filename(image_file['filename']):
+                        metadata = parse_pdf_extraction_filename(image_file['filename'])
+                        pdf_page = metadata.get('page_number')
+                        page_bbox = metadata.get('bbox')
+                        extraction_mode = metadata.get('extraction_mode')
+                        logger.debug(
+                            f"Parsed metadata from {image_file['filename']}: "
+                            f"page={pdf_page}, bbox={page_bbox}, mode={extraction_mode}"
+                        )
+                    
+                    # Create image document with metadata
+                    image_doc = {
+                        "user_id": user_id,
+                        "filename": image_file['filename'],
+                        "file_path": image_file['path'],
+                        "file_size": image_file['size'],
+                        "source_type": "extracted",
+                        "document_id": doc_id,
+                        "pdf_page": pdf_page,
+                        "page_bbox": page_bbox,
+                        "extraction_mode": extraction_mode,
+                        "original_filename": original_filename,
+                        "image_type": [],  # Empty list, to be populated by panel extraction or user
+                        "uploaded_date": datetime.utcnow()
+                    }
+                    
+                    # Insert document to get MongoDB _id
+                    result = images_col.insert_one(image_doc)
+                    image_id = result.inserted_id
+                    logger.debug(f"Inserted image document with _id={image_id}")
+                    
+                    # Rename file to use MongoDB _id
+                    file_ext = os.path.splitext(image_file['filename'])[1]
+                    new_filename = f"{image_id}{file_ext}"
+                    
+                    old_path = image_file['path']
+                    new_path = os.path.join(os.path.dirname(old_path), new_filename)
+                    
+                    # Construct full host paths if these are container paths
+                    if not os.path.isabs(old_path):
+                        # Workspace-relative path, convert to full path
+                        old_full_path = os.path.join(
+                            os.getcwd(), old_path
+                        )
+                    else:
+                        old_full_path = old_path
+                    
+                    new_full_path = os.path.join(os.path.dirname(old_full_path), new_filename)
+                    
+                    try:
+                        os.rename(old_full_path, new_full_path)
+                        logger.info(f"Renamed {original_filename} to {new_filename}")
+                    except OSError as e:
+                        logger.error(
+                            f"Failed to rename {original_filename} to {new_filename}: {str(e)}",
+                            exc_info=True
+                        )
+                        # Delete MongoDB doc since we can't rename the file
+                        images_col.delete_one({"_id": image_id})
+                        extraction_errors.append(
+                            f"Failed to rename {original_filename} to {new_filename}: {str(e)}"
+                        )
+                        continue
+                    
+                    # Update MongoDB with new filename and workspace-relative path
+                    workspace_relative_path = convert_container_path_to_host(
+                        os.path.join(os.path.dirname(image_file['path']), new_filename)
+                    )
+                    
+                    images_col.update_one(
+                        {"_id": image_id},
+                        {
+                            "$set": {
+                                "filename": new_filename,
+                                "file_path": workspace_relative_path
+                            }
+                        }
+                    )
+                    logger.debug(
+                        f"Updated MongoDB: filename={new_filename}, "
+                        f"file_path={workspace_relative_path}"
+                    )
+                    
+                    # Add the MongoDB _id to the extracted file info for later reference
+                    image_file['mongodb_id'] = str(image_id)
+                    image_file['filename'] = new_filename
+                    image_file['path'] = workspace_relative_path
+                    extracted_files_with_ids.append(image_file)
+                    
+                except Exception as e:
+                    logger.error(
+                        f"Error processing extracted image {image_file['filename']}: {str(e)}",
+                        exc_info=True
+                    )
+                    extraction_errors.append(
+                        f"Error processing {image_file['filename']}: {str(e)}"
+                    )
+                    continue
+        else:
+            extracted_files_with_ids = extracted_files
         
         # Update with final results
         documents_col.update_one(
@@ -95,7 +195,7 @@ def extract_images_from_document(self, doc_id: str, user_id: str, pdf_path: str)
                 "$set": {
                     "extraction_status": extraction_status,
                     "extracted_image_count": extracted_count,
-                    "extracted_images": extracted_files,  # Store detailed file info
+                    "extracted_images": extracted_files_with_ids,  # Store detailed file info with MongoDB IDs
                     "extraction_errors": extraction_errors,
                     "extraction_completed_at": datetime.utcnow()
                 }
