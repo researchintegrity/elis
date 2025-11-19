@@ -122,10 +122,90 @@ def extract_panels_from_images(
 
                 # Insert into MongoDB
                 result = images_col.insert_one(panel_doc)
-                panel_id = str(result.inserted_id)
-                result_panel_ids.append(panel_id)
+                panel_mongodb_id = result.inserted_id
+                panel_id_str = str(panel_mongodb_id)
+                result_panel_ids.append(panel_id_str)
 
-                logger.info(f"Created panel document: {panel_id} from {panel_info['panel_id']}")
+                logger.info(f"Created panel document: {panel_id_str} from {panel_info['panel_id']}")
+                
+                # ============================================================
+                # STEP 1: Rename panel file to use MongoDB _id
+                # ============================================================
+                try:
+                    # Get original filename and directory
+                    panel_doc_file = images_col.find_one({"_id": panel_mongodb_id})
+                    original_file_path = panel_doc_file.get("file_path")
+                    
+                    # Construct full path
+                    if not os.path.isabs(original_file_path):
+                        full_old_path = os.path.join(os.getcwd(), original_file_path)
+                    else:
+                        full_old_path = original_file_path
+                    
+                    # New filename using _id
+                    file_ext = os.path.splitext(panel_doc_file.get("filename"))[1]
+                    new_filename = f"{panel_mongodb_id}{file_ext}"
+                    full_new_path = os.path.join(os.path.dirname(full_old_path), new_filename)
+                    
+                    # Rename file
+                    os.rename(full_old_path, full_new_path)
+                    
+                    # Update MongoDB with new path
+                    workspace_relative_path = convert_container_path_to_host(
+                        os.path.join(os.path.dirname(original_file_path), new_filename)
+                    )
+                    images_col.update_one(
+                        {"_id": panel_mongodb_id},
+                        {
+                            "$set": {
+                                "filename": new_filename,
+                                "file_path": workspace_relative_path
+                            }
+                        }
+                    )
+                    logger.debug(f"Renamed panel file to {new_filename}")
+                    
+                except Exception as e:
+                    logger.error(f"Failed to rename panel file for {panel_id_str}: {str(e)}", exc_info=True)
+                
+                # ============================================================
+                # STEP 2: Merge panel_type into source_image.image_type
+                # ============================================================
+                try:
+                    source_image_id = panel_info.get("image_id")
+                    panel_type = panel_info.get("panel_type")
+                    
+                    # Get source image document
+                    source_image = images_col.find_one(
+                        {"_id": ObjectId(source_image_id), "user_id": user_id}
+                    )
+                    
+                    if source_image:
+                        # Get existing types
+                        existing_types = source_image.get("image_type", [])
+                        
+                        # Merge with panel_type (union, no duplicates)
+                        if panel_type and panel_type not in existing_types:
+                            merged_types = existing_types + [panel_type]
+                            merged_types.sort()  # Sort for consistency
+                            
+                            # Update source image
+                            images_col.update_one(
+                                {"_id": ObjectId(source_image_id)},
+                                {"$set": {"image_type": merged_types}}
+                            )
+                            logger.debug(
+                                f"Propagated panel_type '{panel_type}' to source image {source_image_id}: "
+                                f"{existing_types} → {merged_types}"
+                            )
+                    else:
+                        logger.warning(f"Source image not found: {source_image_id}")
+                        
+                except Exception as e:
+                    logger.error(
+                        f"Failed to propagate panel_type for panel {panel_id_str}: {str(e)}", 
+                        exc_info=True
+                    )
 
             except Exception as e:
                 error_msg = f"Error creating panel document for {panel_info.get('panel_id')}: {str(e)}"
@@ -138,6 +218,15 @@ def extract_panels_from_images(
             return _handle_panel_extraction_failure(
                 task_id, image_ids, user_id, error_msg
             )
+
+        # Clean up PANELS.csv after processing
+        panels_csv_path = output_info.get("panels_csv_path")
+        if panels_csv_path and os.path.exists(panels_csv_path):
+            try:
+                os.remove(panels_csv_path)
+                logger.info(f"Deleted PANELS.csv: {panels_csv_path}")
+            except Exception as e:
+                logger.warning(f"Failed to delete PANELS.csv {panels_csv_path}: {str(e)}")
 
         # Success
         result = {
@@ -179,7 +268,12 @@ def _create_panel_document(
     """Create a MongoDB document for an extracted panel.
 
     Panel images are organized in the workspace as:
-    {workspace}/{user_id}/images/panels/{source_image_id}/{figname}/{filename}
+    {workspace}/{user_id}/images/panels/{figname}/{_id}.{ext}
+    
+    Note: figname (from PANELS.csv) is the source_image_id
+
+    Renames the panel file to use MongoDB _id after insertion.
+    Also merges panel_type into source image's image_type list.
 
     Args:
         panel_info: Dict with panel data from PANELS.csv parsing
@@ -203,16 +297,15 @@ def _create_panel_document(
     # Docker outputs to temp location in output_dir root
     temp_panel_path = os.path.join(output_dir, panel_filename)
     
-    # Build organized location: {output_dir}/{source_image_id}/{figname}/
-    # This creates the source image and figure name hierarchy
+    # Build organized location: {output_dir}/{figname}/
+    # Note: figname IS the source_image_id in PANELS.csv, so no need to add image_id again
     organized_panel_dir = os.path.join(
         output_dir,
-        image_id,
         figname
     )
     os.makedirs(organized_panel_dir, exist_ok=True)
     
-    # Final organized path
+    # Final organized path (before _id rename)
     organized_panel_path = os.path.join(organized_panel_dir, panel_filename)
     file_size = 0
     
@@ -241,7 +334,7 @@ def _create_panel_document(
 
     panel_doc = {
         "user_id": user_id,
-        "filename": panel_filename,
+        "filename": panel_filename,  # Will be renamed after insertion
         "file_path": final_file_path,
         "file_size": file_size,
         "source_type": "panel",
@@ -249,9 +342,15 @@ def _create_panel_document(
         "panel_id": panel_id,
         "panel_type": panel_type,
         "bbox": bbox,
+        "image_type": [panel_type] if panel_type else [],  # Initialize with panel_type
         "uploaded_date": datetime.utcnow(),
         "created_at": datetime.utcnow()
     }
+    
+    # IMPORTANT: The calling code will handle:
+    # 1. MongoDB insertion to get _id
+    # 2. File rename from {original_filename} to {_id}.png
+    # 3. Type propagation to source image
 
     return panel_doc
 

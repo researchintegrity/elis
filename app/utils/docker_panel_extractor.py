@@ -106,16 +106,30 @@ def extract_panels_with_docker(
                 return False, error_msg, output_info
 
         # Create output directory for panels, organized by source image
-        # Structure: {workspace}/{user_id}/images/panels/{source_image_id}/{figname}/
-        # All panels go to central panels directory, not alongside source images
+        # Structure: /app/workspace/{user_id}/images/panels/{source_image_id}/{figname}/
+        # All panels should be in user-specific directory, not global location
         
-        # Determine workspace root - go up from input_dir to find it
+        # Determine workspace root - construct correct path
         # input_dir format: /app/workspace/{user_id}/images/extracted/{doc_id}
         #             or: /app/workspace/{user_id}/images/uploaded
         # We need: /app/workspace/{user_id}/images/panels
         
-        workspace_base = os.path.dirname(os.path.dirname(input_dir))  # Go up to 'images' directory
-        output_dir = os.path.join(workspace_base, "panels")
+        # Extract user_id from path: /app/workspace/{user_id}/images/...
+        # Split path and find the user_id (third component after /app/workspace)
+        path_parts = input_dir.split(os.sep)
+        
+        # Find 'workspace' in path and get the next component (user_id)
+        try:
+            workspace_idx = path_parts.index('workspace')
+            user_id_from_path = path_parts[workspace_idx + 1]
+            workspace_root = os.sep.join(path_parts[:workspace_idx + 1])
+            workspace_user_dir = os.path.join(workspace_root, user_id_from_path)
+        except (ValueError, IndexError) as e:
+            error_msg = f"Failed to extract user_id from path {input_dir}: {str(e)}"
+            logger.error(error_msg)
+            return False, error_msg, output_info
+        
+        output_dir = os.path.join(workspace_user_dir, "images", "panels")
         os.makedirs(output_dir, exist_ok=True)
 
         logger.info(

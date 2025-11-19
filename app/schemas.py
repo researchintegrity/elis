@@ -3,7 +3,7 @@ Pydantic schemas for request/response validation
 """
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from datetime import datetime
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 from bson import ObjectId
 from app.config.settings import (
     USERNAME_MIN_LENGTH,
@@ -285,6 +285,13 @@ class ImageResponse(BaseModel):
     panel_id: Optional[str] = None
     panel_type: Optional[str] = None
     bbox: Optional[Dict[str, float]] = None  # {x0, y0, x1, y1}
+    # PDF extraction metadata (only for source_type='extracted' from PDFs)
+    pdf_page: Optional[int] = None
+    page_bbox: Optional[Dict[str, float]] = None  # {x0, y0, x1, y1} in pixel coordinates
+    extraction_mode: Optional[str] = None  # 'normal' or 'safe'
+    original_filename: Optional[str] = None  # Original filename before _id rename
+    # Image type management
+    image_type: List[str] = Field(default_factory=list, description="User-editable image types (e.g., 'figure', 'table', 'equation')")
     uploaded_date: datetime
     user_storage_used: int = 0  # Total bytes used by user
     user_storage_remaining: int = 1073741824  # Remaining quota
@@ -303,8 +310,8 @@ class ImageResponse(BaseModel):
             "example": {
                 "_id": "507f1f77bcf86cd799439013",
                 "user_id": "507f1f77bcf86cd799439011",
-                "filename": "figure_1.png",
-                "file_path": "/workspace/507f1f77bcf86cd799439011/images/extracted/507f1f77bcf86cd799439012/figure_1.png",
+                "filename": "507f1f77bcf86cd799439013.png",
+                "file_path": "workspace/507f1f77bcf86cd799439011/images/extracted/507f1f77bcf86cd799439012/507f1f77bcf86cd799439013.png",
                 "file_size": 512000,
                 "source_type": "extracted",
                 "document_id": "507f1f77bcf86cd799439012",
@@ -312,6 +319,11 @@ class ImageResponse(BaseModel):
                 "panel_id": None,
                 "panel_type": None,
                 "bbox": None,
+                "pdf_page": 4,
+                "page_bbox": {"x0": 40.0, "y0": 59.28, "x1": 553.6, "y1": 492.0},
+                "extraction_mode": "normal",
+                "original_filename": "p-4-x0-40.000-y0-59.280-x1-553.600-y1-492.000-1.png",
+                "image_type": ["figure"],
                 "uploaded_date": "2025-01-01T10:00:00",
                 "user_storage_used": 524288000,
                 "user_storage_remaining": 549453824
@@ -328,6 +340,36 @@ class ImageInDB(BaseModel):
     source_type: str = "uploaded"
     document_id: Optional[str] = None
     uploaded_date: datetime = Field(default_factory=datetime.utcnow)
+
+
+# ============================================================================
+# IMAGE TYPE MANAGEMENT MODELS
+# ============================================================================
+
+class ImageTypeListResponse(BaseModel):
+    """Response for listing all image types in the system"""
+    types: List[str] = Field(description="List of all unique image types used in system")
+    count: int = Field(description="Total number of unique types")
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "types": ["figure", "table", "equation", "text"],
+                "count": 4
+            }
+        }
+
+
+class ImageTypesUpdateRequest(BaseModel):
+    """Request to add types to an image"""
+    types: List[str] = Field(..., description="List of types to add (duplicates ignored)")
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "types": ["figure", "graph"]
+            }
+        }
 
 
 # ============================================================================
