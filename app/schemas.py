@@ -258,6 +258,7 @@ class ImageCreate(BaseModel):
     file_size: int
     source_type: str = Field(default="uploaded", description="extracted|uploaded")
     document_id: Optional[str] = Field(None, description="Reference to document if extracted")
+    exif_metadata: Optional[Dict[str, Any]] = Field(None, description="EXIF metadata extracted from image")
 
     class Config:
         schema_extra = {
@@ -267,7 +268,8 @@ class ImageCreate(BaseModel):
                 "file_path": "/workspace/507f1f77bcf86cd799439011/images/extracted/507f1f77bcf86cd799439012/figure_1.png",
                 "file_size": 512000,
                 "source_type": "extracted",
-                "document_id": "507f1f77bcf86cd799439012"
+                "document_id": "507f1f77bcf86cd799439012",
+                "exif_metadata": {"Make": "Canon", "Model": "Canon EOS 5D Mark IV"}
             }
         }
 
@@ -298,6 +300,7 @@ class ImageResponse(BaseModel):
     panel_id: Optional[str] = None
     panel_type: Optional[str] = None
     bbox: Optional[Dict[str, float]] = None  # {x0, y0, x1, y1}
+    exif_metadata: Optional[Dict[str, Any]] = None
     # PDF extraction metadata (only for source_type='extracted' from PDFs)
     pdf_page: Optional[int] = None
     page_bbox: Optional[Dict[str, float]] = None  # {x0, y0, x1, y1} in pixel coordinates

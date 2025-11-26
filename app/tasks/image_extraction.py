@@ -6,7 +6,7 @@ from celery.exceptions import SoftTimeLimitExceeded
 from app.celery_config import celery_app
 from app.db.mongodb import get_documents_collection, get_images_collection
 from app.utils.file_storage import figure_extraction_hook
-from app.utils.metadata_parser import parse_pdf_extraction_filename, is_pdf_extraction_filename
+from app.utils.metadata_parser import parse_pdf_extraction_filename, is_pdf_extraction_filename, extract_exif_metadata
 from app.config.settings import CELERY_MAX_RETRIES, CELERY_RETRY_BACKOFF_BASE, convert_container_path_to_host
 from bson import ObjectId
 from datetime import datetime
@@ -97,6 +97,8 @@ def extract_images_from_document(self, doc_id: str, user_id: str, pdf_path: str)
                             f"page={pdf_page}, bbox={page_bbox}, mode={extraction_mode}"
                         )
                     
+                    
+
                     # Create image document with metadata
                     image_doc = {
                         "user_id": user_id,
@@ -110,7 +112,8 @@ def extract_images_from_document(self, doc_id: str, user_id: str, pdf_path: str)
                         "extraction_mode": extraction_mode,
                         "original_filename": original_filename,
                         "image_type": [],  # Empty list, to be populated by panel extraction or user
-                        "uploaded_date": datetime.utcnow()
+                        "uploaded_date": datetime.utcnow(),
+                        "exif_metadata": "Not Extracted Yet"
                     }
                     
                     # Insert document to get MongoDB _id
@@ -175,6 +178,20 @@ def extract_images_from_document(self, doc_id: str, user_id: str, pdf_path: str)
                     image_file['filename'] = new_filename
                     image_file['path'] = workspace_relative_path
                     extracted_files_with_ids.append(image_file)
+
+                    # Extract EXIF metadata and update MongoDB
+                    exif_metadata = extract_exif_metadata(image_file['path'])
+                    images_col.update_one(
+                        {"_id": image_id},
+                        {
+                            "$set": {
+                                "exif_metadata": exif_metadata,
+                            }
+                        }
+                    )
+                    logger.debug(
+                        f"Updated MongoDB: exif metadata for {new_filename}, "
+                    )
                     
                 except Exception as e:
                     logger.error(

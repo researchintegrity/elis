@@ -332,6 +332,11 @@ def _create_panel_document(
     final_file_path = convert_container_path_to_host(organized_panel_path)
     logger.debug(f"Container path: {organized_panel_path} → Host path: {final_file_path}")
 
+    # Fetch source image to get EXIF metadata
+    images_col = get_images_collection()
+    source_image = images_col.find_one({"_id": ObjectId(image_id)})
+    exif_metadata = source_image.get("exif_metadata") if source_image else None
+
     panel_doc = {
         "user_id": user_id,
         "filename": panel_filename,  # Will be renamed after insertion
@@ -344,7 +349,8 @@ def _create_panel_document(
         "bbox": bbox,
         "image_type": [panel_type] if panel_type else [],  # Initialize with panel_type
         "uploaded_date": datetime.utcnow(),
-        "created_at": datetime.utcnow()
+        "created_at": datetime.utcnow(),
+        "exif_metadata": exif_metadata
     }
     
     # IMPORTANT: The calling code will handle:
