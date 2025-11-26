@@ -143,8 +143,7 @@ def extract_exif_metadata(image_path: str) -> Dict[str, Any]:
 
     Performance Warning:
     This function creates a new instance of ExifTool (starts a subprocess) every time you call it.
-        If you process 1 photo: It works perfectly.
-        If you process 1,000 photos in a loop: It will be extremely slow (opening and closing the application 1,000 times).
+        If you process 1,000 photos in a loop: It could be slow (opening and closing the application 1,000 times).
         If you use this in a loop, you should refactor to pass a list of files, or keep the helper open outside the function.
     """
     try:
