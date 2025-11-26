@@ -23,6 +23,7 @@ from app.utils.file_storage import (
     check_storage_quota,
     update_user_storage_in_db
 )
+from app.utils.metadata_parser import extract_exif_metadata
 from app.config.storage_quota import DEFAULT_USER_STORAGE_QUOTA
 from app.services.image_service import delete_image_and_artifacts, list_images as list_images_service
 from app.services.resource_helpers import get_owned_resource
@@ -130,6 +131,9 @@ async def upload_image(
                     detail="Document not found"
                 )
         
+        # Extract EXIF metadata
+        exif_metadata = extract_exif_metadata(file_path)
+
         # Create image record in MongoDB
         images_col = get_images_collection()
         
@@ -145,7 +149,8 @@ async def upload_image(
             "extraction_mode": None,
             "original_filename": file.filename,  # Store original name
             "image_type": [],  # Empty for user-uploaded, can be edited later
-            "uploaded_date": datetime.utcnow()
+            "uploaded_date": datetime.utcnow(),
+            "exif_metadata": exif_metadata
         }
         
         result = images_col.insert_one(img_data)

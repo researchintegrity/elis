@@ -5,6 +5,7 @@ WORKDIR /app
 # Install Docker CLI
 RUN apt-get update && apt-get install -y \
     docker.io \
+    libimage-exiftool-perl \
     && rm -rf /var/lib/apt/lists/*
 
 # Install dependencies
