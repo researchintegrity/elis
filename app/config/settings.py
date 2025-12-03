@@ -59,6 +59,20 @@ TRUFOR_TIMEOUT = 600  # 10 minutes
 TRUFOR_DOCKER_WORKDIR = "/workspace"
 TRUFOR_USE_GPU = os.getenv("TRUFOR_USE_GPU", "true").lower() == "true"
 
+# ============================================================================
+# CBIR (Content-Based Image Retrieval) SETTINGS
+# ============================================================================
+# When running inside Docker, use container name 'cbir-service'
+# When running locally, use 'localhost:8001'
+# The CBIR_SERVICE_HOST is the hostname/IP of the CBIR microservice
+CBIR_SERVICE_HOST = os.getenv("CBIR_SERVICE_HOST", "localhost")
+CBIR_SERVICE_PORT = int(os.getenv("CBIR_SERVICE_PORT", "8001"))
+CBIR_SERVICE_URL = os.getenv(
+    "CBIR_SERVICE_URL",
+    f"http://{CBIR_SERVICE_HOST}:{CBIR_SERVICE_PORT}"
+)
+CBIR_TIMEOUT = int(os.getenv("CBIR_TIMEOUT", "120"))  # 2 minutes default
+
 # Extraction timeouts (in seconds)
 DOCKER_EXTRACTION_TIMEOUT = 300  # 5 minutes
 DOCKER_COMPOSE_EXTRACTION_TIMEOUT = 300  # 5 minutes

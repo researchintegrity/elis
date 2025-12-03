@@ -13,6 +13,9 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRATION_HOURS: 24
       WORKSPACE_PATH: ${WORKSPACE_PATH}
+      # CBIR service configuration (use container name when running in Docker)
+      CBIR_SERVICE_HOST: ${CBIR_SERVICE_HOST:-cbir-service}
+      CBIR_SERVICE_PORT: ${CBIR_SERVICE_PORT:-8001}
     depends_on:
       - mongo
       - redis
@@ -21,6 +24,7 @@ services:
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     networks:
       - elis_network
+      - milvus # Connect to CBIR/Milvus network for inter-service communication
 
   # Redis Message Broker
   redis:
@@ -82,6 +86,9 @@ services:
       WORKSPACE_PATH: ${WORKSPACE_PATH}
       JWT_SECRET: ${JWT_SECRET}
       TRUFOR_USE_GPU: "false"
+      # CBIR service configuration (use container name when running in Docker)
+      CBIR_SERVICE_HOST: ${CBIR_SERVICE_HOST:-cbir-service}
+      CBIR_SERVICE_PORT: ${CBIR_SERVICE_PORT:-8001}
     depends_on:
       - redis
       - mongo
@@ -92,6 +99,7 @@ services:
     restart: unless-stopped
     networks:
       - elis_network
+      - milvus # Connect to CBIR/Milvus network for inter-service communication
 
   # Celery Worker 2
   worker_2:
@@ -103,6 +111,9 @@ services:
       WORKSPACE_PATH: ${WORKSPACE_PATH}
       JWT_SECRET: ${JWT_SECRET}
       TRUFOR_USE_GPU: "false"
+      # CBIR service configuration (use container name when running in Docker)
+      CBIR_SERVICE_HOST: ${CBIR_SERVICE_HOST:-cbir-service}
+      CBIR_SERVICE_PORT: ${CBIR_SERVICE_PORT:-8001}
     depends_on:
       - redis
       - mongo
@@ -113,6 +124,7 @@ services:
     restart: unless-stopped
     networks:
       - elis_network
+      - milvus # Connect to CBIR/Milvus network for inter-service communication
 
   # Celery Flower - Monitoring Dashboard
   flower:
@@ -127,6 +139,7 @@ services:
     command: celery --broker=redis://redis:6379/0 flower --port=5555
     networks:
       - elis_network
+      - milvus # Connect to CBIR/Milvus network for inter-service communication
 
 volumes:
   mongo_data:
@@ -139,3 +152,8 @@ volumes:
 networks:
   elis_network:
     driver: bridge
+  # External network shared with CBIR system (system_modules/cbir-system)
+  # The CBIR docker-compose creates this network. Start CBIR first:
+  #   cd system_modules/cbir-system && docker-compose up -d
+  milvus:
+    external: true
