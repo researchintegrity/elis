@@ -17,7 +17,6 @@ from pathlib import Path
 import io
 import os
 from bson import ObjectId
-import uuid
 from unittest.mock import patch, MagicMock
 
 from app.main import app

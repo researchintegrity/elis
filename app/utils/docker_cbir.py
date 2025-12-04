@@ -4,7 +4,6 @@ CBIR (Content-Based Image Retrieval) API Client
 This module provides functions to interact with the CBIR microservice
 for image similarity search and indexing.
 """
-import os
 import logging
 import requests
 from typing import Tuple, Dict, List, Optional, Any

@@ -4,9 +4,7 @@ Unit tests for CBIR (Content-Based Image Retrieval) integration.
 These tests verify the CBIR utility functions and service layer
 without requiring the actual CBIR microservice to be running.
 """
-import pytest
 from unittest.mock import patch, MagicMock
-from datetime import datetime
 
 from app.utils.docker_cbir import (
     _convert_path_for_cbir,

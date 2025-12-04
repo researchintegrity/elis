@@ -20,7 +20,6 @@ These tests require Docker containers to be running:
 import pytest
 import os
 import io
-from pathlib import Path
 from datetime import datetime
 from fastapi.testclient import TestClient
 from bson import ObjectId

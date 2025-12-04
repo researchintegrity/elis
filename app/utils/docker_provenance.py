@@ -5,7 +5,7 @@ This module provides functions to interact with the Provenance Analysis microser
 """
 import logging
 import requests
-from typing import Tuple, Dict, List, Optional, Any
+from typing import Tuple, Dict, List, Any
 from app.config.settings import (
     PROVENANCE_SERVICE_URL,
     PROVENANCE_TIMEOUT,
