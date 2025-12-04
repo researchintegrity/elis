@@ -1,19 +1,15 @@
 """
 Panel extraction tasks for async processing
 """
-import csv
 import os
 import logging
 from typing import Dict, List, Any
 from datetime import datetime
-from pathlib import Path
-from celery import current_task
 from celery.exceptions import SoftTimeLimitExceeded
 from bson import ObjectId
 from app.celery_config import celery_app
 from app.db.mongodb import get_images_collection
 from app.utils.docker_panel_extractor import extract_panels_with_docker
-from app.utils.file_storage import get_panel_output_path
 from app.config.settings import (
     CELERY_MAX_RETRIES, 
     CELERY_RETRY_BACKOFF_BASE,

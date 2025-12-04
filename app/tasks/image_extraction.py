@@ -1,7 +1,6 @@
 """
 Image extraction tasks for async processing
 """
-from celery import current_task
 from celery.exceptions import SoftTimeLimitExceeded
 from app.celery_config import celery_app
 from app.db.mongodb import get_documents_collection, get_images_collection
@@ -126,7 +125,6 @@ def extract_images_from_document(self, doc_id: str, user_id: str, pdf_path: str)
                     new_filename = f"{image_id}{file_ext}"
                     
                     old_path = image_file['path']
-                    new_path = os.path.join(os.path.dirname(old_path), new_filename)
                     
                     # Resolve workspace path properly (handles workspace/... -> /workspace/...)
                     old_full_path = resolve_workspace_path(old_path)

@@ -18,7 +18,6 @@ These tests require Docker containers to be running:
 """
 
 import pytest
-import time
 import os
 import io
 from pathlib import Path

@@ -10,7 +10,6 @@ import os
 import csv
 import logging
 from typing import Tuple, Dict, List, Any
-from pathlib import Path
 from app.config.settings import (
     DOCKER_EXTRACTION_TIMEOUT,
     is_container_path,

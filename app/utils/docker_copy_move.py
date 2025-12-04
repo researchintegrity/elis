@@ -13,7 +13,6 @@ from app.config.settings import (
     COPY_MOVE_DETECTION_TIMEOUT,
 )
 from app.utils.file_storage import get_analysis_output_path
-from app.schemas import AnalysisType
 
 logger = logging.getLogger(__name__)
 

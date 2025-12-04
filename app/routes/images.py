@@ -10,10 +10,8 @@ from pathlib import Path
 
 from app.schemas import (
     ImageResponse,
-    ImageTypeListResponse,
     ImageTypesUpdateRequest,
     CopyMoveAnalysisRequest,
-    MessageResponse
 )
 from app.db.mongodb import get_images_collection, get_documents_collection
 from app.utils.security import get_current_user
@@ -841,8 +839,6 @@ async def list_all_image_types(
 
 from app.schemas import (
     ImageResponse,
-    ImageCreate,
-    MessageResponse,
     CopyMoveAnalysisRequest,
     AnalysisType,
     AnalysisStatus

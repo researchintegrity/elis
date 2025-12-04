@@ -4,8 +4,7 @@ Docker-based TruFor Detection using trufor container
 import subprocess
 import os
 import logging
-import time
-from typing import Tuple, Dict, Generator, Optional, Callable
+from typing import Tuple, Dict, Optional, Callable
 from app.config.settings import (
     is_container_path,
     get_container_path_length,
@@ -162,8 +161,6 @@ def run_trufor_detection_with_docker(
         if stdout_rest:
             stdout_lines.append(stdout_rest)
             
-        full_stdout = "".join(stdout_lines)
-        
         if process.returncode != 0:
             logger.error(f"Docker command failed: {stderr}")
             if "Unknown runtime specified nvidia" in stderr:

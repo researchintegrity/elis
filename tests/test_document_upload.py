@@ -808,13 +808,6 @@ class TestDelete:
         )
         doc_id = get_id_from_response(pdf_response.json())
         
-        # Get list of images before deletion
-        images_response = client.get(
-            "/images",
-            headers={"Authorization": f"Bearer {token}"}
-        )
-        images_before = len(images_response.json())
-        
         # Delete document
         delete_response = client.delete(
             f"/documents/{doc_id}",
