@@ -4,12 +4,13 @@ Test configuration and fixtures for pytest
 import pytest
 import os
 from dotenv import load_dotenv
+
+# Load test environment variables immediately, before importing app modules
+load_dotenv()
+
 from fastapi.testclient import TestClient
 from app.main import app
 from app.db.mongodb import db_connection, get_users_collection
-
-# Load test environment variables
-load_dotenv()
 
 # Test MongoDB connection string (unauthenticated test database on port 27018)
 # Can be overridden with TEST_MONGODB_URL env var
