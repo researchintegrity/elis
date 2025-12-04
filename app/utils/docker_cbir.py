@@ -10,7 +10,7 @@ from typing import Tuple, Dict, List, Optional, Any
 from app.config.settings import (
     is_container_path,
     get_container_path_length,
-    WORKSPACE_ROOT,
+    HOST_WORKSPACE_PATH,
     CBIR_SERVICE_URL,
     CBIR_TIMEOUT,
     CONTAINER_WORKSPACE_PATH,
@@ -42,8 +42,8 @@ def _convert_path_for_cbir(file_path: str) -> str:
         return f"{CONTAINER_WORKSPACE_PATH}{rel_path}"
     
     # If it's an absolute workspace path, extract relative part
-    if WORKSPACE_ROOT and file_path.startswith(WORKSPACE_ROOT):
-        rel_path = file_path[len(WORKSPACE_ROOT):]
+    if HOST_WORKSPACE_PATH and file_path.startswith(HOST_WORKSPACE_PATH):
+        rel_path = file_path[len(HOST_WORKSPACE_PATH):]
         return f"{CONTAINER_WORKSPACE_PATH}{rel_path}"
     
     # Assume it's already in the correct format

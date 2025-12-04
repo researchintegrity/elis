@@ -5,7 +5,7 @@ import os
 import time
 import uuid
 from pathlib import Path
-from app.config.settings import resolve_workspace_path
+from app.config.settings import convert_container_path_to_host, resolve_workspace_path
 
 # Configuration
 BASE_URL = os.getenv("API_URL", "http://localhost:8000")
@@ -111,8 +111,8 @@ def test_upload_and_delete_image(auth_token, test_image_file):
     # 2. Verify file exists on disk
     # We need to resolve the path because the API might return a container path or relative path
     # and we are running tests on the host.
-    resolved_path = resolve_workspace_path(file_path)
-    print(f"Resolved Path on Host: {resolved_path}")
+    resolved_path = str(convert_container_path_to_host(Path(file_path)))
+    print(f"Resolved Path on Host: {resolved_path}")    
     
     assert os.path.exists(resolved_path), f"File should exist at {resolved_path}"
     
@@ -168,7 +168,7 @@ def test_upload_and_delete_pdf(auth_token, test_pdf_file):
     print(f"File Path from API: {file_path}")
     
     # 2. Verify file exists on disk
-    resolved_path = resolve_workspace_path(file_path)
+    resolved_path = str(convert_container_path_to_host(Path(file_path)))
     print(f"Resolved Path on Host: {resolved_path}")
     
     assert os.path.exists(resolved_path), f"File should exist at {resolved_path}"

@@ -125,11 +125,12 @@ def extract_panels_with_docker(
         path_parts = input_dir.split(os.sep)
         
         # Find 'workspace' in path and get the next component (user_id)
+        # FIX PATH ISSUE WORKSPACE
         try:
             workspace_idx = path_parts.index('workspace')
             user_id_from_path = path_parts[workspace_idx + 1]
-            workspace_root = os.sep.join(path_parts[:workspace_idx + 1])
-            workspace_user_dir = os.path.join(workspace_root, user_id_from_path)
+            host_workspace_path = os.sep.join(path_parts[:workspace_idx + 1])
+            workspace_user_dir = os.path.join(host_workspace_path, user_id_from_path)
         except (ValueError, IndexError) as e:
             error_msg = f"Failed to extract user_id from path {input_dir}: {str(e)}"
             logger.error(error_msg)

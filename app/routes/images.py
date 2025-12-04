@@ -23,7 +23,7 @@ from app.utils.file_storage import (
 )
 from app.utils.metadata_parser import extract_exif_metadata
 from app.config.storage_quota import DEFAULT_USER_STORAGE_QUOTA
-from app.config.settings import resolve_workspace_path
+from app.config.settings import resolve_workspace_path, ensure_container_path
 from app.services.image_service import delete_image_and_artifacts, list_images as list_images_service
 from app.services.resource_helpers import get_owned_resource
 from app.services.quota_helpers import augment_with_quota
@@ -156,38 +156,36 @@ async def upload_image(
         image_id = result.inserted_id
         
         # Rename file to use MongoDB _id
-        file_ext = os.path.splitext(file.filename)[1]
-        new_filename = f"{image_id}{file_ext}"
+        file_ext = Path(file.filename).suffix
+        new_filename = Path(file.filename).with_name(f"{image_id}{file_ext}")
         
-        # Construct full paths
-        if not os.path.isabs(file_path):
-            old_full_path = os.path.join(os.getcwd(), file_path)
-        else:
-            old_full_path = file_path
+        # Construct full paths using pathlib
+        old_path = Path(file_path)
+        if not old_path.is_absolute():
+            old_path = Path.cwd() / old_path
         
-        new_full_path = os.path.join(os.path.dirname(old_full_path), new_filename)
+        new_full_path = old_path.parent / new_filename
         
         try:
-            os.rename(old_full_path, new_full_path)
+            old_path.rename(new_full_path)
         except OSError as e:
             # Delete MongoDB doc since we can't rename the file
             images_col.delete_one({"_id": image_id})
             raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to rename uploaded file: {str(e)}"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to rename uploaded file: {str(e)}"
             )
         
-        # Update MongoDB with new filename and workspace-relative path
-        workspace_relative_path = convert_container_path_to_host(
-            os.path.join(os.path.dirname(file_path), new_filename)
-        )
-        
+        # Update MongoDB with new filename with container-compatible path
+        # ISSUE IS HERE
+        file_path = Path(file_path).parent / new_filename
+        storage_path = ensure_container_path(file_path)
         images_col.update_one(
             {"_id": image_id},
             {
                 "$set": {
-                    "filename": new_filename,
-                    "file_path": workspace_relative_path
+                    "filename": str(new_filename),
+                    "file_path": str(storage_path)
                 }
             }
         )
@@ -321,8 +319,7 @@ async def download_image(
     )
     
     # Check if file exists - resolve workspace path to actual filesystem path
-    stored_path = img["file_path"]
-    file_path = resolve_workspace_path(stored_path)
+    file_path = img["file_path"]
     if not Path(file_path).exists():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

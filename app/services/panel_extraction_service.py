@@ -84,12 +84,11 @@ def initiate_panel_extraction(
                 raise ValueError(f"Image document has no file_path: {img_id}")
 
             # Resolve to absolute filesystem path
-            resolved_path = resolve_workspace_path(file_path)
-            image_paths.append(resolved_path)
+            # resolved_path = resolve_workspace_path(file_path)
+            image_paths.append(file_path)
             validated_ids.append(img_id)
 
-            logger.debug(f"Validated image {img_id}: {resolved_path}")
-
+            logger.debug(f"Validated image {img_id}: {file_path}")
         except Exception as e:
             error_msg = f"Error validating image {img_id}: {str(e)}"
             logger.error(error_msg)

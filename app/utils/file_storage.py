@@ -12,7 +12,6 @@ logger = logging.getLogger(__name__)
 # Import storage configuration
 from app.config.storage_quota import MAX_PDF_FILE_SIZE, MAX_IMAGE_FILE_SIZE, DEFAULT_USER_STORAGE_QUOTA
 from app.config.settings import (
-    EXTRACTION_SUBDIRECTORY, 
     PDF_EXTRACTOR_DOCKER_IMAGE, 
     UPLOAD_DIR,
     resolve_workspace_path
@@ -29,7 +28,7 @@ ALLOWED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"}
 
 def ensure_directories_exist():
     """Ensure all required directories exist"""
-    UPLOAD_DIR.mkdir(exist_ok=True)
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def get_user_upload_path(user_id: str, subfolder: str = None) -> Path:
@@ -57,7 +56,6 @@ def get_user_upload_path(user_id: str, subfolder: str = None) -> Path:
         if user_path.exists():
             logger.error(f"Path exists. Is dir? {user_path.is_dir()}. Is file? {user_path.is_file()}")
         raise
-        
     return user_path
 
 
@@ -314,9 +312,7 @@ def delete_file(file_path: str) -> Tuple[bool, Optional[str]]:
         Tuple of (success, error_message)
     """
     try:
-        # Resolve path to ensure it's absolute and correct for current environment
-        resolved_path_str = resolve_workspace_path(file_path)
-        path = Path(resolved_path_str)
+        path = Path(file_path)
         
         if path.exists():
             path.unlink()
@@ -341,8 +337,8 @@ def delete_directory(dir_path: str) -> Tuple[bool, Optional[str]]:
     """
     try:
         # Resolve path to ensure it's absolute and correct for current environment
-        resolved_path_str = resolve_workspace_path(dir_path)
-        path = Path(resolved_path_str)
+        # ISSUE here
+        path = Path(dir_path)
         
         if path.exists() and path.is_dir():
             shutil.rmtree(path)

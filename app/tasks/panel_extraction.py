@@ -14,6 +14,7 @@ from app.config.settings import (
     CELERY_MAX_RETRIES, 
     CELERY_RETRY_BACKOFF_BASE,
     convert_container_path_to_host,
+    ensure_container_path,
     resolve_workspace_path
 )
 
@@ -134,7 +135,8 @@ def extract_panels_from_images(
                     original_file_path = panel_doc_file.get("file_path")
                     
                     # Resolve workspace path properly (handles workspace/... -> /workspace/...)
-                    full_old_path = resolve_workspace_path(original_file_path)
+                    # full_old_path = resolve_workspace_path(original_file_path)
+                    full_old_path = ensure_container_path(original_file_path)
                     
                     # New filename using _id
                     file_ext = os.path.splitext(panel_doc_file.get("filename"))[1]

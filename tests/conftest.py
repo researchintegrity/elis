@@ -6,8 +6,10 @@ import os
 from dotenv import load_dotenv
 
 # Load test environment variables immediately, before importing app modules
-load_dotenv()
 
+current_dir = os.path.dirname(os.path.abspath(__file__))
+dotenv_path = os.path.join(current_dir, 'test.env')
+load_dotenv(dotenv_path)
 from fastapi.testclient import TestClient
 from app.main import app
 from app.db.mongodb import db_connection, get_users_collection
