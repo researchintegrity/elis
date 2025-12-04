@@ -7,7 +7,7 @@ to the CBIR microservice. Requires the CBIR microservice to be running.
 Prerequisites:
 1. Backend API running at localhost:8000
 2. CBIR microservice running at localhost:8001 (or cbir-service:8001 if in Docker)
-3. MongoDB running at localhost:27017 (or 27018 for test)
+3. MongoDB running at localhost:27017
 4. Celery worker running for async tasks
 
 Configuration:
