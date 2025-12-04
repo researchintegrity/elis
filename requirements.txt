@@ -3,6 +3,7 @@
 fastapi[standard]==0.121.1
 uvicorn[standard]==0.38.0
 python-multipart==0.0.20
+requests==2.31.0
 
 # Database
 pymongo==4.7.0

@@ -674,6 +674,84 @@ class PanelExtractionStatusResponse(BaseModel):
 
 
 # ============================================================================
+# CBIR (Content-Based Image Retrieval) SCHEMAS
+# ============================================================================
+
+class CBIRIndexRequest(BaseModel):
+    """Request to index images in CBIR system"""
+    image_ids: Optional[List[str]] = Field(None, description="Specific image IDs to index. If None, indexes all user images.")
+    labels: Optional[List[str]] = Field(None, description="Labels to apply to indexed images")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "image_ids": ["507f1f77bcf86cd799439013", "507f1f77bcf86cd799439014"],
+                "labels": ["Western Blot", "Microscopy"]
+            }
+        }
+
+
+class CBIRSearchRequest(BaseModel):
+    """Request to search for similar images"""
+    image_id: str = Field(..., description="Query image ID")
+    top_k: int = Field(10, ge=1, le=100, description="Number of similar images to return")
+    labels: Optional[List[str]] = Field(None, description="Filter results by labels")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "image_id": "507f1f77bcf86cd799439013",
+                "top_k": 10,
+                "labels": ["Western Blot"]
+            }
+        }
+
+
+class CBIRSearchResult(BaseModel):
+    """Single CBIR search result"""
+    cbir_id: Optional[int] = Field(None, description="CBIR internal ID")
+    distance: float = Field(..., description="Distance/dissimilarity score (lower is more similar)")
+    similarity_score: float = Field(..., description="Similarity score (higher is more similar)")
+    image_path: str = Field(..., description="Path to the similar image")
+    image_id: Optional[str] = Field(None, description="MongoDB image ID")
+    filename: Optional[str] = Field(None, description="Image filename")
+    file_size: Optional[int] = Field(None, description="Image file size in bytes")
+    source_type: Optional[str] = Field(None, description="Image source type")
+    document_id: Optional[str] = Field(None, description="Source document ID if extracted")
+    image_type: List[str] = Field(default_factory=list, description="Image type labels")
+    cbir_labels: List[str] = Field(default_factory=list, description="CBIR index labels")
+
+
+class CBIRSearchResponse(BaseModel):
+    """CBIR search response with results"""
+    query_image_id: str
+    top_k: int
+    labels_filter: Optional[List[str]] = None
+    matches_count: int
+    matches: List[CBIRSearchResult]
+
+
+class CBIRDeleteRequest(BaseModel):
+    """Request to delete images from CBIR index"""
+    image_ids: List[str] = Field(..., min_length=1, description="Image IDs to remove from index")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "image_ids": ["507f1f77bcf86cd799439013", "507f1f77bcf86cd799439014"]
+            }
+        }
+
+
+class CBIRStatusResponse(BaseModel):
+    """CBIR service status"""
+    service: str = "cbir"
+    healthy: bool
+    message: str
+    timestamp: datetime
+
+
+# ============================================================================
 # ANALYSIS SCHEMAS
 # ============================================================================
 
@@ -681,6 +759,8 @@ class AnalysisType(str, Enum):
     SINGLE_IMAGE_COPY_MOVE = "single_image_copy_move"
     CROSS_IMAGE_COPY_MOVE = "cross_image_copy_move"
     TRUFOR = "trufor"
+    CBIR_SEARCH = "cbir_search"
+    PROVENANCE = "provenance"
 
 
 class AnalysisStatus(str, Enum):
@@ -716,12 +796,22 @@ class CrossImageAnalysisCreate(BaseModel):
 class AnalysisResult(BaseModel):
     """Generic analysis result container"""
     method: Optional[int] = None
-    timestamp: datetime
+    timestamp: Optional[datetime] = None
     matches_image: Optional[str] = None
     clusters_image: Optional[str] = None
     visualization: Optional[str] = None
     files: Optional[List[str]] = None
     logs: Optional[Dict[str, Any]] = None
+    
+    # CBIR specific fields
+    query_image_id: Optional[str] = None
+    top_k: Optional[int] = None
+    labels_filter: Optional[List[str]] = None
+    matches_count: Optional[int] = None
+    matches: Optional[List[CBIRSearchResult]] = None
+
+    class Config:
+        extra = "allow"
 
 
 class AnalysisResponse(AnalysisBase):

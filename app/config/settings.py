@@ -19,7 +19,8 @@ from pathlib import Path
 # ============================================================================
 
 # Base directory for all user uploads and workspace files
-UPLOAD_DIR = Path("workspace")
+# Use absolute path for workspace to avoid issues with relative paths in different contexts
+UPLOAD_DIR = Path(os.getenv("WORKSPACE_PATH", os.path.abspath("workspace")))
 
 # ============================================================================
 # EXTRACTION SETTINGS
@@ -59,13 +60,40 @@ TRUFOR_TIMEOUT = 600  # 10 minutes
 TRUFOR_DOCKER_WORKDIR = "/workspace"
 TRUFOR_USE_GPU = os.getenv("TRUFOR_USE_GPU", "true").lower() == "true"
 
+# ============================================================================
+# CBIR (Content-Based Image Retrieval) SETTINGS
+# ============================================================================
+# When running inside Docker, use container name 'cbir-service'
+# When running locally, use 'localhost:8001'
+# The CBIR_SERVICE_HOST is the hostname/IP of the CBIR microservice
+CBIR_SERVICE_HOST = os.getenv("CBIR_SERVICE_HOST", "localhost")
+CBIR_SERVICE_PORT = int(os.getenv("CBIR_SERVICE_PORT", "8001"))
+CBIR_SERVICE_URL = os.getenv(
+    "CBIR_SERVICE_URL",
+    f"http://{CBIR_SERVICE_HOST}:{CBIR_SERVICE_PORT}"
+)
+CBIR_TIMEOUT = int(os.getenv("CBIR_TIMEOUT", "120"))  # 2 minutes default
+
+# ============================================================================
+# PROVENANCE ANALYSIS SETTINGS
+# ============================================================================
+# When running inside Docker, use container name 'provenance-service'
+# When running locally, use 'localhost:8002'
+PROVENANCE_SERVICE_HOST = os.getenv("PROVENANCE_SERVICE_HOST", "localhost")
+PROVENANCE_SERVICE_PORT = int(os.getenv("PROVENANCE_SERVICE_PORT", "8002"))
+PROVENANCE_SERVICE_URL = os.getenv(
+    "PROVENANCE_SERVICE_URL",
+    f"http://{PROVENANCE_SERVICE_HOST}:{PROVENANCE_SERVICE_PORT}"
+)
+PROVENANCE_TIMEOUT = int(os.getenv("PROVENANCE_TIMEOUT", "600"))  # 10 minutes default
+
 # Extraction timeouts (in seconds)
 DOCKER_EXTRACTION_TIMEOUT = 300  # 5 minutes
 DOCKER_COMPOSE_EXTRACTION_TIMEOUT = 300  # 5 minutes
 DOCKER_IMAGE_CHECK_TIMEOUT = 10  # Check if image exists
 
 # Path constants
-APP_WORKSPACE_PREFIX = "/app/workspace"
+APP_WORKSPACE_PREFIX = "/workspace"
 EXTRACTION_SUBDIRECTORY = "images/extracted"
 
 # ============================================================================
@@ -142,7 +170,7 @@ def get_container_path_prefix() -> str:
     Get the prefix used for container paths (for path detection)
     
     Returns:
-        Container path prefix: /app/workspace
+        Container path prefix: /workspace
     """
     return APP_WORKSPACE_PREFIX
 
@@ -165,7 +193,7 @@ def get_container_path_length() -> int:
     Get the length of the container path prefix (for string slicing)
     
     Returns:
-        Length of /app/workspace
+        Length of /workspace
     """
     return len(APP_WORKSPACE_PREFIX)
 
@@ -175,17 +203,55 @@ def convert_container_path_to_host(container_path: str) -> str:
     Convert a container path to a relative workspace path.
     
     Args:
-        container_path: Path inside container (starts with /app/workspace)
+        container_path: Path inside container (starts with /workspace)
         
     Returns:
         Relative path from workspace root (without WORKSPACE_ROOT prefix)
         
     Examples:
-        /app/workspace/user_id/images/... → workspace/user_id/images/...
+        /workspace/user_id/images/... → workspace/user_id/images/...
     """
     if is_container_path(container_path):
-        # Remove /app/workspace prefix, leaving just the relative path
-        rel_path = container_path[get_container_path_length():]  # Removes /app/workspace
+        # Remove /workspace prefix, leaving just the relative path
+        rel_path = container_path[get_container_path_length():]  # Removes /workspace
         # Add 'workspace' prefix back to create workspace-relative path
         return "workspace" + rel_path
     return container_path
+
+
+def resolve_workspace_path(stored_path: str) -> str:
+    """
+    Resolve a stored workspace path to the actual filesystem path.
+    
+    Stored paths in the database may be in relative format like:
+    - "workspace/user_id/images/..." (relative, for portability)
+    
+    This function converts them to the actual filesystem path based on
+    the current WORKSPACE_PATH setting.
+    
+    Args:
+        stored_path: Path as stored in the database
+        
+    Returns:
+        Absolute filesystem path that can be used for file operations
+        
+    Examples:
+        workspace/user_id/images/test.jpg → /workspace/user_id/images/test.jpg
+        /workspace/user_id/images/test.jpg → /workspace/user_id/images/test.jpg (unchanged)
+    """
+    # If already an absolute container path, return as-is
+    if is_container_path(stored_path):
+        return stored_path
+    
+    # If it's a relative "workspace/..." path, convert to absolute
+    if stored_path.startswith("workspace/"):
+        # Remove "workspace/" prefix and prepend the actual workspace path
+        rel_path = stored_path[len("workspace/"):]
+        return f"{APP_WORKSPACE_PREFIX}/{rel_path}"
+    
+    # If it's some other relative path, try to resolve it
+    if not os.path.isabs(stored_path):
+        # Try prepending WORKSPACE_ROOT
+        return os.path.join(WORKSPACE_ROOT, stored_path)
+    
+    return stored_path
