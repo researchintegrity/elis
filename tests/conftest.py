@@ -12,21 +12,17 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.db.mongodb import db_connection, get_users_collection
 
-# Test MongoDB connection string (unauthenticated test database on port 27018)
-# Can be overridden with TEST_MONGODB_URL env var
 # Using separate test database to avoid conflicts with main app
-TEST_MONGODB_URL = os.getenv("TEST_MONGODB_URL", "mongodb://localhost:27018")
+# NOTE: Now using main MongoDB connection with test database name
 TEST_DATABASE_NAME = "elis_system_test"
 
 
 @pytest.fixture(scope="session")
 def mongodb_connection():
     """Set up MongoDB connection for tests"""
-    # Override connection string for testing
-    original_url = os.getenv("MONGODB_URL")
+    # Use the main MongoDB connection but with a test database
     original_db = os.getenv("DATABASE_NAME")
     
-    os.environ["MONGODB_URL"] = TEST_MONGODB_URL
     os.environ["DATABASE_NAME"] = TEST_DATABASE_NAME
     
     # Reinitialize connection with test database
@@ -45,8 +41,6 @@ def mongodb_connection():
         print(f"Cleanup error: {e}")
     
     # Restore original settings
-    if original_url:
-        os.environ["MONGODB_URL"] = original_url
     if original_db:
         os.environ["DATABASE_NAME"] = original_db
 

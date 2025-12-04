@@ -271,9 +271,10 @@ class TestWatermarkRemovalIntegration:
 
         with patch("os.path.exists", return_value=True), \
              patch("os.path.getsize", return_value=1000000), \
-             patch("os.path.dirname", return_value="/workspace"), \
+             patch("os.path.dirname", return_value="/tmp"), \
              patch("os.path.basename", return_value="research_paper.pdf"), \
-             patch("os.path.splitext", return_value=("research_paper", ".pdf")):
+             patch("os.path.splitext", return_value=("research_paper", ".pdf")), \
+             patch("app.utils.docker_watermark.is_container_path", return_value=False):
 
             from app.utils.docker_watermark import remove_watermark_with_docker
 
@@ -288,7 +289,7 @@ class TestWatermarkRemovalIntegration:
                     success, _, output_info = remove_watermark_with_docker(
                         doc_id="doc_id",
                         user_id="user_id",
-                        pdf_file_path="/workspace/research_paper.pdf",
+                        pdf_file_path="/tmp/research_paper.pdf",
                         aggressiveness_mode=mode
                     )
 
