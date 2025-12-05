@@ -234,13 +234,14 @@ def convert_container_path_to_host(container_path: Path) -> Path:
 
 def convert_host_path_to_container(path: Path) -> Path:
     """
-    Ensure a path is in container format (/workspace/...)
+    Ensure a path is in container format.
     
     Args:
         path: Path to ensure is in container format
     Returns:
         Path in container format
     """
+    path = Path(path) if not isinstance(path, Path) else path
     if is_container_path(path):
         return path
     # Convert host path to container path
