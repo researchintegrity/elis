@@ -22,7 +22,7 @@ from app.utils.file_storage import (
 )
 from app.utils.metadata_parser import extract_exif_metadata
 from app.config.storage_quota import DEFAULT_USER_STORAGE_QUOTA
-from app.config.settings import resolve_workspace_path, ensure_container_path
+from app.config.settings import resolve_workspace_path, convert_host_path_to_container
 from app.services.image_service import delete_image_and_artifacts, list_images as list_images_service
 from app.services.resource_helpers import get_owned_resource
 from app.services.quota_helpers import augment_with_quota
@@ -178,7 +178,7 @@ async def upload_image(
         # Update MongoDB with new filename with container-compatible path
         # ISSUE IS HERE
         file_path = Path(file_path).parent / new_filename
-        storage_path = ensure_container_path(file_path)
+        storage_path = convert_host_path_to_container(file_path)
         images_col.update_one(
             {"_id": image_id},
             {

@@ -232,7 +232,7 @@ def convert_container_path_to_host(container_path: Path) -> Path:
         return HOST_WORKSPACE_PATH / rel_path
     return container_path
 
-def ensure_container_path(path: Path) -> Path:
+def convert_host_path_to_container(path: Path) -> Path:
     """
     Ensure a path is in container format (/workspace/...)
     

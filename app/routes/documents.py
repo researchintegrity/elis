@@ -28,7 +28,7 @@ from app.utils.file_storage import (
     update_user_storage_in_db
 )
 from app.config.storage_quota import DEFAULT_USER_STORAGE_QUOTA
-from app.config.settings import ensure_container_path
+from app.config.settings import convert_host_path_to_container
 from app.tasks.image_extraction import extract_images_from_document
 from app.services.watermark_removal_service import (
     initiate_watermark_removal,
@@ -145,7 +145,7 @@ async def upload_document(
         
         # Update MongoDB with new filename with container-compatible path
         file_path = Path(file_path).parent / new_filename
-        storage_path = ensure_container_path(file_path)
+        storage_path = convert_host_path_to_container(file_path)
         documents_col.update_one(
             {"_id": ObjectId(doc_id)},
             {

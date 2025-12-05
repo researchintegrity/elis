@@ -6,7 +6,7 @@ from app.celery_config import celery_app
 from app.db.mongodb import get_documents_collection, get_images_collection
 from app.utils.file_storage import figure_extraction_hook
 from app.utils.metadata_parser import parse_pdf_extraction_filename, is_pdf_extraction_filename, extract_exif_metadata
-from app.config.settings import CELERY_MAX_RETRIES, CELERY_RETRY_BACKOFF_BASE, ensure_container_path
+from app.config.settings import CELERY_MAX_RETRIES, CELERY_RETRY_BACKOFF_BASE, convert_host_path_to_container
 from bson import ObjectId
 from datetime import datetime
 import logging
@@ -150,7 +150,7 @@ def extract_images_from_document(self, doc_id: str, user_id: str, pdf_path: str)
                         continue
                     
                     # Update MongoDB with new filename 
-                    file_storage_path = ensure_container_path(new_path)
+                    file_storage_path = convert_host_path_to_container(new_path)
                     
                     images_col.update_one(
                         {"_id": image_id},

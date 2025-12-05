@@ -14,7 +14,7 @@ from app.config.settings import (
     CELERY_MAX_RETRIES, 
     CELERY_RETRY_BACKOFF_BASE,
     convert_container_path_to_host,
-    ensure_container_path,
+    convert_host_path_to_container,
     resolve_workspace_path
 )
 
@@ -136,7 +136,7 @@ def extract_panels_from_images(
                     
                     # Resolve workspace path properly (handles workspace/... -> /workspace/...)
                     # full_old_path = resolve_workspace_path(original_file_path)
-                    full_old_path = ensure_container_path(original_file_path)
+                    full_old_path = convert_host_path_to_container(original_file_path)
                     
                     # New filename using _id
                     file_ext = os.path.splitext(panel_doc_file.get("filename"))[1]
@@ -147,15 +147,14 @@ def extract_panels_from_images(
                     os.rename(full_old_path, full_new_path)
                     
                     # Update MongoDB with new path
-                    workspace_relative_path = convert_container_path_to_host(
-                        os.path.join(os.path.dirname(original_file_path), new_filename)
-                    )
+                    stored_path = str(convert_host_path_to_container(full_new_path))
+                    
                     images_col.update_one(
                         {"_id": panel_mongodb_id},
                         {
                             "$set": {
                                 "filename": new_filename,
-                                "file_path": workspace_relative_path
+                                "file_path": stored_path
                             }
                         }
                     )
@@ -264,7 +263,7 @@ def _create_panel_document(
     """Create a MongoDB document for an extracted panel.
 
     Panel images are organized in the workspace as:
-    {workspace}/{user_id}/images/panels/{figname}/{_id}.{ext}
+    {<workspace-env>}/{user_id}/images/panels/{figname}/{_id}.{ext}
     
     Note: figname (from PANELS.csv) is the source_image_id
 
@@ -275,8 +274,7 @@ def _create_panel_document(
         panel_info: Dict with panel data from PANELS.csv parsing
         user_id: User who owns this panel
         output_dir: Central panels directory where Docker outputs files
-                   Format: /workspace/{user_id}/images/panels
-
+                   Format: {<workspace-env>}/{user_id}/images/panels
     Returns:
         MongoDB document ready to insert
     """
@@ -325,7 +323,7 @@ def _create_panel_document(
         logger.warning(f"Panel file not found: {temp_panel_path} or {organized_panel_path}")
 
     # Convert container path to host path for storage in MongoDB
-    final_file_path = convert_container_path_to_host(organized_panel_path)
+    final_file_path = str(convert_host_path_to_container(organized_panel_path))
     logger.debug(f"Container path: {organized_panel_path} → Host path: {final_file_path}")
 
     # Fetch source image to get EXIF metadata

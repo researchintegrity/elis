@@ -7,7 +7,7 @@ import logging
 from typing import Tuple, Dict
 from pathlib import Path
 from app.config.settings import (
-    ensure_container_path,
+    convert_host_path_to_container,
     is_container_path,
     convert_container_path_to_host,
     COPY_MOVE_DETECTION_DOCKER_IMAGE,
@@ -179,11 +179,11 @@ def run_copy_move_detection_with_docker(
         
         if os.path.exists(matches_path):
             # Convert host path to container path
-            results['matches_image'] = str(ensure_container_path(matches_path))
+            results['matches_image'] = str(convert_host_path_to_container(matches_path))
         
         if os.path.exists(clusters_path):
             # Convert host path to container path
-            results['clusters_image'] = str(ensure_container_path(clusters_path))
+            results['clusters_image'] = str(convert_host_path_to_container(clusters_path))
             
         if not results:
              return False, "Analysis completed but no output files were found.", results

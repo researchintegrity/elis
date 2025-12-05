@@ -9,7 +9,6 @@ from app.schemas import (
     AnalysisStatus,
 )
 from app.services.resource_helpers import get_owned_resource
-from app.config.settings import resolve_workspace_path
 from datetime import datetime
 from bson import ObjectId
 from app.tasks.copy_move_detection import detect_copy_move
@@ -215,7 +214,7 @@ async def analyze_trufor(
         analysis_id=analysis_id,
         image_id=request.image_id,
         user_id=user_id_str,
-        image_path=resolve_workspace_path(image["file_path"])
+        image_path=image["file_path"]
     )
     
     return {"message": "TruFor analysis started", "analysis_id": analysis_id}
