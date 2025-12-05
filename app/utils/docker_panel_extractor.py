@@ -100,6 +100,7 @@ def extract_panels_with_docker(
         image_paths = [os.path.abspath(p) for p in image_paths]
 
         # Get the input directory (all images should be in same directory)
+        # we are using the /<workspace>/<user_id>/images/ structure
         # input dir should be path until find /images/
         path = Path(image_paths[0])
         parts = path.parts
