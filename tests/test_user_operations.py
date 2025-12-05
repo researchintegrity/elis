@@ -4,7 +4,6 @@ Test suite for user operations: registration, login, and deletion
 import pytest
 import requests
 import os
-from bson import ObjectId
 
 from app.db.mongodb import get_users_collection, db_connection
 
@@ -34,6 +33,7 @@ def cleanup_database():
         # Delete test users (those with usernames starting with test_)
         users_col.delete_many({"username": {"$regex": "^test_"}})
     except Exception:
+        # if nothing to clean up or error occurs, just pass
         pass
 
 

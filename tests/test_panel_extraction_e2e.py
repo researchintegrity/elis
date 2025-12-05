@@ -77,6 +77,7 @@ def cleanup_database():
         images_col = get_images_collection()
         images_col.delete_many({})
     except Exception:
+        # If cleanup fails, the database was already clean or error occurred, just pass
         pass
 
 

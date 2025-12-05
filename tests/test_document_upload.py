@@ -130,6 +130,7 @@ def cleanup_workspace():
                 try:
                     delete_directory(str(child))
                 except Exception:
+                    # If deletion fails, the workspace was already clean or error occurred, just pass
                     pass
 
 

@@ -1,8 +1,8 @@
 
+from bson import ObjectId
 import pytest
 import requests
 import os
-import time
 import uuid
 from pathlib import Path
 from app.config.settings import convert_container_path_to_host
@@ -29,6 +29,7 @@ def auth_token():
     try:
         requests.post(f"{BASE_URL}/auth/register", json=register_data)
     except Exception:
+        # If registration fails (e.g. user already exists), just pass
         pass
 
     # 2. Login
