@@ -9,44 +9,10 @@ from typing import Tuple, Dict, List, Any
 from app.config.settings import (
     PROVENANCE_SERVICE_URL,
     PROVENANCE_TIMEOUT,
-    is_container_path,
-    get_container_path_length,
-    HOST_WORKSPACE_PATH,
-    CONTAINER_WORKSPACE_PATH,
+    convert_host_path_to_container,
 )
 
 logger = logging.getLogger(__name__)
-
-
-def _convert_path_for_provenance(file_path: str) -> str:
-    """
-    Convert a file path to the format expected by the Provenance service.
-    
-    The Provenance service expects paths relative to its /workspace mount point.
-    
-    Args:
-        file_path: The file path (can be container path or host path)
-        
-    Returns:
-        Path that Provenance can access via its /workspace mount
-    """
-    # If it's a container path (/workspace/...), convert to /workspace/...
-    if is_container_path(file_path):
-        rel_path = file_path[get_container_path_length():]  # Remove /workspace
-        return f"{CONTAINER_WORKSPACE_PATH}{rel_path}"
-    
-    # If it's a workspace path (workspace/...), convert to /workspace/...
-    if file_path.startswith("workspace/"):
-        rel_path = file_path[len("workspace"):]  # Remove 'workspace'
-        return f"{CONTAINER_WORKSPACE_PATH}{rel_path}"
-    
-    # If it's an absolute workspace path, extract relative part
-    if HOST_WORKSPACE_PATH and file_path.startswith(HOST_WORKSPACE_PATH):
-        rel_path = file_path[len(HOST_WORKSPACE_PATH):]
-        return f"{CONTAINER_WORKSPACE_PATH}{rel_path}"
-    
-    # Assume it's already in the correct format
-    return file_path
 
 
 def check_provenance_health() -> Tuple[bool, str]:
@@ -100,13 +66,13 @@ def analyze_provenance(
     for img in images:
         processed_images.append({
             "id": str(img["id"]),
-            "path": _convert_path_for_provenance(img["path"]),
+            "path": str(convert_host_path_to_container(img["path"])),
             "label": img.get("label", "")
         })
         
     processed_query = {
         "id": str(query_image["id"]),
-        "path": _convert_path_for_provenance(query_image["path"]),
+        "path": str(convert_host_path_to_container(query_image["path"])),
         "label": query_image.get("label", "")
     }
     
