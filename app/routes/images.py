@@ -37,7 +37,7 @@ from app.services.panel_extraction_service import (
     get_panels_by_source_image
 )
 from app.tasks.copy_move_detection import detect_copy_move
-from app.tasks.cbir import cbir_index_image
+from app.tasks.cbir import cbir_index_image, cbir_update_labels
 
 router = APIRouter(prefix="/images", tags=["images"])
 
@@ -670,6 +670,15 @@ async def add_image_types(
             {"$set": {"image_type": merged_types}}
         )
         
+        # Update CBIR labels asynchronously (if image has file_path)
+        if image_doc.get("file_path"):
+            cbir_update_labels.delay(
+                user_id=user_id,
+                image_id=image_id,
+                image_path=image_doc["file_path"],
+                labels=merged_types
+            )
+        
         # Fetch updated document
         updated_doc = images_col.find_one({"_id": ObjectId(image_id)})
         
@@ -760,6 +769,15 @@ async def remove_image_type(
             {"_id": ObjectId(image_id)},
             {"$set": {"image_type": updated_types}}
         )
+        
+        # Update CBIR labels asynchronously (if image has file_path)
+        if image_doc.get("file_path"):
+            cbir_update_labels.delay(
+                user_id=user_id,
+                image_id=image_id,
+                image_path=image_doc["file_path"],
+                labels=updated_types
+            )
         
         # Fetch updated document
         updated_doc = images_col.find_one({"_id": ObjectId(image_id)})

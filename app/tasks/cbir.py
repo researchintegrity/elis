@@ -11,6 +11,7 @@ from app.utils.docker_cbir import (
     search_similar_images,
     delete_image_from_index,
     delete_user_data,
+    update_image_labels,
 )
 from app.config.settings import CELERY_MAX_RETRIES
 from app.schemas import AnalysisStatus
@@ -264,6 +265,43 @@ def cbir_delete_image(
             
     except Exception as e:
         logger.error(f"Error deleting image {image_id} from CBIR: {e}")
+        raise self.retry(exc=e, countdown=60)
+
+
+@celery_app.task(bind=True, max_retries=CELERY_MAX_RETRIES, name="tasks.cbir_update_labels")
+def cbir_update_labels(
+    self,
+    user_id: str,
+    image_id: str,
+    image_path: str,
+    labels: list
+):
+    """
+    Update labels for an image in the CBIR index asynchronously.
+    
+    This is called when user modifies image_type tags to keep
+    MongoDB and MilvusDB in sync.
+    
+    Args:
+        user_id: User ID for multi-tenancy
+        image_id: MongoDB image ID
+        image_path: Path to the image
+        labels: New labels list
+    """
+    try:
+        logger.info(f"Updating CBIR labels for image {image_id}: {labels}")
+        
+        success, message = update_image_labels(user_id, image_path, labels)
+        
+        if success:
+            logger.info(f"CBIR labels updated for image {image_id}")
+            return {"status": "success", "labels": labels}
+        else:
+            logger.warning(f"CBIR label update for image {image_id}: {message}")
+            return {"status": "skipped", "message": message}
+            
+    except Exception as e:
+        logger.error(f"Error updating CBIR labels for image {image_id}: {e}")
         raise self.retry(exc=e, countdown=60)
 
 
