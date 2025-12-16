@@ -365,6 +365,30 @@ class ImageInDB(BaseModel):
     analysis_ids: List[str] = Field(default_factory=list)
 
 
+class PaginatedImageResponse(BaseModel):
+    """Paginated response for image listing - supports efficient gallery pagination"""
+    items: List["ImageResponse"] = Field(description="List of images for current page")
+    total: int = Field(description="Total number of images matching the query")
+    page: int = Field(description="Current page number (1-indexed)")
+    per_page: int = Field(description="Number of items per page")
+    total_pages: int = Field(description="Total number of pages")
+    has_next: bool = Field(description="Whether there is a next page")
+    has_prev: bool = Field(description="Whether there is a previous page")
+    
+    class Config:
+        schema_extra = {
+            "example": {
+                "items": [],
+                "total": 150,
+                "page": 1,
+                "per_page": 24,
+                "total_pages": 7,
+                "has_next": True,
+                "has_prev": False
+            }
+        }
+
+
 # ============================================================================
 # IMAGE TYPE MANAGEMENT MODELS
 # ============================================================================
