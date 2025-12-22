@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import FileResponse
 from app.utils.security import get_current_user
 from app.db.mongodb import get_analyses_collection, get_images_collection
 from app.schemas import (
@@ -9,8 +10,11 @@ from app.schemas import (
     AnalysisStatus,
 )
 from app.services.resource_helpers import get_owned_resource
+from app.config.settings import convert_container_path_to_host, is_container_path
 from datetime import datetime
 from bson import ObjectId
+from pathlib import Path
+import os
 from app.tasks.copy_move_detection import detect_copy_move
 
 router = APIRouter(
@@ -44,6 +48,73 @@ async def get_analysis(
         )
         
     return analysis
+
+
+@router.get("/{analysis_id}/results/{result_type}/download")
+async def download_analysis_result(
+    analysis_id: str,
+    result_type: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Download an analysis result image file.
+    
+    Args:
+        analysis_id: Analysis ID
+        result_type: Type of result to download ('matches' or 'clusters')
+        current_user: Current authenticated user
+        
+    Returns:
+        FileResponse with the result image
+    """
+    user_id_str = str(current_user["_id"])
+    
+    # Validate result_type
+    if result_type not in ("matches", "clusters"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid result type. Must be 'matches' or 'clusters'"
+        )
+    
+    analyses_col = get_analyses_collection()
+    analysis = analyses_col.find_one({"_id": ObjectId(analysis_id)})
+    
+    if not analysis:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Analysis not found"
+        )
+        
+    if analysis["user_id"] != user_id_str:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access this analysis"
+        )
+    
+    # Get the result file path
+    results = analysis.get("results", {})
+    result_key = f"{result_type}_image"
+    file_path = results.get(result_key)
+    
+    if not file_path:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No {result_type} result available for this analysis"
+        )
+    
+    # Check if file exists (path is already container path, which is mounted)
+    if not os.path.exists(file_path):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Result file not found on disk: {file_path}"
+        )
+    
+    # Return the file
+    return FileResponse(
+        path=file_path,
+        filename=os.path.basename(file_path),
+        media_type="image/png"
+    )
 
 
 @router.post("/copy-move/single", status_code=status.HTTP_202_ACCEPTED, response_model=dict)
