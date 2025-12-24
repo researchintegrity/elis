@@ -174,7 +174,7 @@ def enrich_search_results(
         enriched_result = {
             "cbir_id": result.get("id"),
             "distance": raw_distance,
-            "similarity_score": similarity,
+            "similarity_score": round(similarity, 4),
             "cbir_labels": result.get("labels", []),
             "image_path": path,
         }

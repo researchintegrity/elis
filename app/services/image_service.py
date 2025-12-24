@@ -15,6 +15,7 @@ from app.utils.file_storage import (
 )
 from app.tasks.cbir import cbir_delete_image
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -139,7 +140,7 @@ async def list_images(
         - returned: Number of images returned in this query
         
     Raises:
-        ValueError: If source_type is invalid
+        ValueError: If source_type is invalid or date_from/date_to have invalid ISO format
     """
     from datetime import datetime
     
@@ -169,22 +170,22 @@ async def list_images(
             try:
                 parsed_from = datetime.fromisoformat(date_from.replace('Z', '+00:00'))
                 date_query["$gte"] = parsed_from
-            except ValueError:
-                pass  # Invalid date format, skip this filter
+            except ValueError as e:
+                raise ValueError(f"Invalid date format for date_from: {date_from}. Expected ISO format (e.g., 2025-01-01T00:00:00)")
         if date_to:
             try:
                 parsed_to = datetime.fromisoformat(date_to.replace('Z', '+00:00'))
                 # Set to end of day
                 parsed_to = parsed_to.replace(hour=23, minute=59, second=59, microsecond=999999)
                 date_query["$lte"] = parsed_to
-            except ValueError:
-                pass  # Invalid date format, skip this filter
+            except ValueError as e:
+                raise ValueError(f"Invalid date format for date_to: {date_to}. Expected ISO format (e.g., 2025-01-01T00:00:00)")
         if date_query:
             query["uploaded_date"] = date_query
     
     # Search filter - case-insensitive regex on filename
     if search:
-        query["filename"] = {"$regex": search, "$options": "i"}
+        query["filename"] = {"$regex": re.escape(search), "$options": "i"}
     
     # Get total count before pagination
     total_count = images_col.count_documents(query)

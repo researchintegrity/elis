@@ -3,7 +3,7 @@ Pydantic schemas for request/response validation
 """
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from datetime import datetime
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, List, Any, Literal
 from bson import ObjectId
 from enum import Enum
 from app.config.settings import (
@@ -67,10 +67,12 @@ class UserResponse(BaseModel):
     email: str
     full_name: Optional[str] = None
     is_active: bool
+    roles: List[str] = Field(default_factory=lambda: ["user"])
     storage_used_bytes: int = 0
     storage_limit_bytes: int = 1073741824  # 1 GB default
     created_at: datetime
     updated_at: datetime
+    last_login_at: Optional[datetime] = None
 
     @field_validator('id', mode='before')
     @classmethod
@@ -89,10 +91,12 @@ class UserResponse(BaseModel):
                 "email": "john@example.com",
                 "full_name": "John Doe",
                 "is_active": True,
+                "roles": ["user"],
                 "storage_used_bytes": 524288000,
                 "storage_limit_bytes": 1073741824,
                 "created_at": "2025-01-01T10:00:00",
-                "updated_at": "2025-01-02T15:30:00"
+                "updated_at": "2025-01-02T15:30:00",
+                "last_login_at": "2025-01-02T15:30:00"
             }
         }
 
@@ -156,10 +160,12 @@ class UserInDB(BaseModel):
     hashed_password: str
     full_name: Optional[str] = None
     is_active: bool = True
+    roles: List[str] = Field(default_factory=lambda: ["user"])
     storage_used_bytes: int = 0  # Total storage used (PDFs + images)
     storage_limit_bytes: int = 1073741824  # 1 GB default
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+    last_login_at: Optional[datetime] = None
 
 
 # ============================================================================
@@ -504,7 +510,7 @@ class AnnotationCreate(BaseModel):
     coords: CoordinateInfo = Field(..., description="Annotation coordinates")
     type: Optional[str] = Field("manipulation", description="Annotation type/label (e.g., manipulation, copy-move, splicing)")
     group_id: Optional[int] = Field(None, description="Group ID for related annotations (e.g., copy-move pairs)")
-    shape_type: Optional[str] = Field("rectangle", description="Shape type: rectangle, ellipse, or polygon")
+    shape_type: Optional[Literal["rectangle", "ellipse", "polygon"]] = Field("rectangle", description="Shape type: rectangle, ellipse, or polygon")
 
     class Config:
         schema_extra = {
@@ -533,7 +539,7 @@ class AnnotationResponse(BaseModel):
     coords: CoordinateInfo
     type: Optional[str] = "manipulation"
     group_id: Optional[int] = None
-    shape_type: Optional[str] = "rectangle"
+    shape_type: Optional[Literal["rectangle", "ellipse", "polygon"]] = "rectangle"
     created_at: datetime
     updated_at: datetime
 
@@ -552,6 +558,9 @@ class AnnotationResponse(BaseModel):
                     "width": 10.2,
                     "height": 15.8
                 },
+                "type": "manipulation",
+                "group_id": None,
+                "shape_type": "rectangle",
                 "created_at": "2025-01-01T10:00:00",
                 "updated_at": "2025-01-01T10:00:00"
             }
@@ -905,3 +914,123 @@ class AnalysisResponse(AnalysisBase):
         json_encoders = {ObjectId: str}
         populate_by_name = True
 
+
+# ============================================================================
+# Admin Panel Schemas
+# ============================================================================
+
+class AdminUserResponse(BaseModel):
+    """Extended user response for admin panel"""
+    id: str = Field(alias="_id")
+    username: str
+    email: str
+    full_name: Optional[str] = None
+    is_active: bool
+    roles: List[str] = Field(default_factory=lambda: ["user"])
+    storage_used_bytes: int = 0
+    storage_limit_bytes: int = 1073741824
+    created_at: datetime
+    updated_at: datetime
+    last_login_at: Optional[datetime] = None
+
+    @field_validator('id', mode='before')
+    @classmethod
+    def convert_object_id(cls, v):
+        """Convert MongoDB ObjectId to string"""
+        if isinstance(v, ObjectId):
+            return str(v)
+        return v
+
+    class Config:
+        from_attributes = True
+        populate_by_name = True
+
+
+class AdminUserListResponse(BaseModel):
+    """Paginated list of users for admin panel"""
+    users: List[AdminUserResponse]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+
+
+class AdminUpdateQuotaRequest(BaseModel):
+    """Request to update a user's storage quota"""
+    storage_limit_bytes: int = Field(
+        ...,
+        gt=0,
+        description="New storage limit in bytes (must be positive)"
+    )
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "storage_limit_bytes": 5368709120  # 5 GB
+            }
+        }
+
+
+class AdminUpdateRoleRequest(BaseModel):
+    """Request to update a user's roles"""
+    roles: List[str] = Field(
+        ...,
+        min_length=1,
+        description="List of roles to assign to the user"
+    )
+
+    @field_validator('roles')
+    @classmethod
+    def validate_roles(cls, v):
+        """Validate that roles are valid"""
+        valid_roles = {"user", "admin"}
+        for role in v:
+            if role not in valid_roles:
+                raise ValueError(f"Invalid role: {role}. Valid roles are: {valid_roles}")
+        if "user" not in v:
+            v = ["user"] + v  # Always include 'user' base role
+        return list(set(v))  # Remove duplicates
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "roles": ["user", "admin"]
+            }
+        }
+
+
+class AdminResetPasswordRequest(BaseModel):
+    """Request to reset a user's password (optional - if not provided, generates random)"""
+    new_password: Optional[str] = Field(
+        None,
+        min_length=PASSWORD_MIN_LENGTH,
+        description=f"New password (min {PASSWORD_MIN_LENGTH} characters). If not provided, a secure random password will be generated."
+    )
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "new_password": "NewSecurePassword123"
+            }
+        }
+
+
+class AdminResetPasswordResponse(BaseModel):
+    """Response after password reset"""
+    message: str
+    generated_password: Optional[str] = Field(
+        None,
+        description="Only returned if password was auto-generated"
+    )
+
+
+class AdminUpdateUserStatusRequest(BaseModel):
+    """Request to activate/deactivate a user"""
+    is_active: bool = Field(..., description="Set to true to activate, false to deactivate")
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "is_active": False
+            }
+        }

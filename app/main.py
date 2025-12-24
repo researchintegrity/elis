@@ -4,7 +4,7 @@ ELIS Scientific Image Analysis System
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routes import auth, users, documents, images, api, annotations, analyses, provenance
+from app.routes import auth, users, documents, images, api, annotations, analyses, provenance, admin
 from app.routes import cbir
 from app.db.mongodb import db_connection
 
@@ -45,6 +45,7 @@ app.include_router(annotations.router)
 app.include_router(analyses.router)
 app.include_router(cbir.router)
 app.include_router(provenance.router)
+app.include_router(admin.router)
 app.include_router(api.router)
 
 

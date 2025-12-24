@@ -48,9 +48,12 @@ async def register(user_data: UserRegister) -> dict:
         "hashed_password": hash_password(user_data.password),
         "full_name": user_data.full_name,
         "is_active": True,
+        "roles": ["user"],  # Default role for new users
         "storage_used_bytes": 0,  # Initialize storage usage tracking
+        "storage_limit_bytes": 1073741824,  # 1 GB default quota
         "created_at": __import__('datetime').datetime.utcnow(),
-        "updated_at": __import__('datetime').datetime.utcnow()
+        "updated_at": __import__('datetime').datetime.utcnow(),
+        "last_login_at": None
     }
     
     try:
@@ -105,6 +108,18 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()) -> dict:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is disabled"
         )
+    
+    # Update last_login_at timestamp
+    from datetime import datetime
+    collection.update_one(
+        {"_id": user["_id"]},
+        {"$set": {"last_login_at": datetime.utcnow()}}
+    )
+    user["last_login_at"] = datetime.utcnow()
+    
+    # Ensure roles field exists for backwards compatibility
+    if "roles" not in user:
+        user["roles"] = ["user"]
     
     # Create token
     access_token = create_access_token(username=user["username"])

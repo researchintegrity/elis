@@ -133,3 +133,61 @@ async def get_current_active_user(current_user: dict = Depends(get_current_user)
         )
     
     return current_user
+
+
+async def get_current_admin_user(current_user: dict = Depends(get_current_active_user)) -> dict:
+    """
+    Get current admin user (checks if user has admin role)
+    
+    Args:
+        current_user: Current active user from token
+        
+    Returns:
+        Admin user document
+        
+    Raises:
+        HTTPException: If user is not an admin
+    """
+    user_roles = current_user.get("roles", ["user"])
+    
+    if "admin" not in user_roles:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin privileges required"
+        )
+    
+    return current_user
+
+
+def generate_secure_password(length: int = 16) -> str:
+    """
+    Generate a secure random password
+    
+    Args:
+        length: Length of the password to generate
+        
+    Returns:
+        Secure random password string
+    """
+    import secrets
+    import string
+    
+    # Ensure we have at least one of each required character type
+    alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
+    
+    # Generate password with at least one lowercase, uppercase, digit, and special char
+    password = [
+        secrets.choice(string.ascii_lowercase),
+        secrets.choice(string.ascii_uppercase),
+        secrets.choice(string.digits),
+        secrets.choice("!@#$%^&*"),
+    ]
+    
+    # Fill the rest with random characters
+    password.extend(secrets.choice(alphabet) for _ in range(length - 4))
+    
+    # Shuffle to randomize position of required characters
+    import random
+    random.shuffle(password)
+    
+    return ''.join(password)
