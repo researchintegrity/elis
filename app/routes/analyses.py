@@ -27,6 +27,55 @@ router = APIRouter(
 )
 
 
+@router.get("/stats", response_model=dict)
+async def get_analysis_stats(
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get analysis statistics for the current user.
+    
+    Returns total counts by status for all analyses.
+    This is used to power the stats badges in the Analysis Dashboard.
+    """
+    try:
+        user_id_str = str(current_user["_id"])
+        analyses_col = get_analyses_collection()
+        
+        # Count by status using aggregation
+        pipeline = [
+            {"$match": {"user_id": user_id_str}},
+            {"$group": {"_id": "$status", "count": {"$sum": 1}}}
+        ]
+        
+        status_counts = list(analyses_col.aggregate(pipeline))
+        
+        # Build response with all statuses
+        stats = {
+            "total": 0,
+            "completed": 0,
+            "processing": 0,
+            "pending": 0,
+            "failed": 0
+        }
+        
+        for item in status_counts:
+            status_key = item["_id"]
+            if status_key in stats:
+                stats[status_key] = item["count"]
+            stats["total"] += item["count"]
+        
+        return {
+            "success": True,
+            "message": "Stats retrieved successfully",
+            "data": stats
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve analysis stats: {str(e)}"
+        )
+
+
 @router.get("", response_model=PaginatedResponse)
 async def list_analyses(
     current_user: dict = Depends(get_current_user),
