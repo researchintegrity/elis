@@ -823,6 +823,7 @@ class AnalysisType(str, Enum):
     TRUFOR = "trufor"
     CBIR_SEARCH = "cbir_search"
     PROVENANCE = "provenance"
+    EXTERNAL = "external"  # Client-side tools (ELA, Noise Analysis, Magnifier, etc.)
 
 
 class AnalysisStatus(str, Enum):
@@ -840,6 +841,10 @@ class AnalysisBase(BaseModel):
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     status: AnalysisStatus = AnalysisStatus.PENDING
     error: Optional[str] = None
+    parameters: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Analysis-specific parameters used to configure this analysis"
+    )
 
 
 class SingleImageAnalysisCreate(BaseModel):
@@ -852,6 +857,33 @@ class SingleImageAnalysisCreate(BaseModel):
     )
     # Dense method sub-parameter (1-5)
     dense_method: int = Field(2, ge=1, le=5, description="Dense method variant (1-5)")
+
+
+class TruForAnalysisCreate(BaseModel):
+    """Request to create a TruFor forgery detection analysis"""
+    image_id: str = Field(..., description="ID of the image to analyze")
+    save_noiseprint: bool = Field(
+        default=False,
+        description="Whether to save the noiseprint map (useful for advanced analysis)"
+    )
+
+
+class ExternalAnalysisCreate(BaseModel):
+    """Request to save an external/client-side analysis result"""
+    image_id: str = Field(..., description="ID of the image that was analyzed")
+    analysis_subtype: str = Field(
+        ...,
+        description="Subtype of analysis (e.g., 'ela', 'noise_analysis', 'magnifier', 'histogram')"
+    )
+    parameters: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Parameters used in the client-side analysis (e.g., quality level for ELA)"
+    )
+    notes: Optional[str] = Field(
+        None,
+        max_length=2000,
+        description="Optional notes or observations about the analysis"
+    )
 
 
 class CrossImageAnalysisCreate(BaseModel):

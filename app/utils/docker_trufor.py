@@ -20,11 +20,17 @@ from app.schemas import AnalysisType
 
 logger = logging.getLogger(__name__)
 
+# Path to the local run_trufor.py script that will be mounted into the container
+# This allows patching the container without rebuilding the image
+TRUFOR_SCRIPT_PATH = Path(__file__).parent.parent.parent / "system_modules" / "TruFor" / "docker" / "src" / "run_trufor.py"
+
+
 def run_trufor_detection_with_docker(
     analysis_id: str,
     user_id: str,
     image_path: str,
     docker_image: str = None,
+    save_noiseprint: bool = False,
     status_callback: Optional[Callable[[str], None]] = None
 ) -> Tuple[bool, str, Dict]:
     """Run TruFor detection on an image using Docker.
@@ -34,6 +40,7 @@ def run_trufor_detection_with_docker(
         user_id: ID of the user
         image_path: Absolute path to the source image file
         docker_image: Optional custom docker image name
+        save_noiseprint: Whether to save the noiseprint map (default: False)
         status_callback: Optional function to call with status updates (str)
 
     Returns:
@@ -92,12 +99,26 @@ def run_trufor_detection_with_docker(
     
     if TRUFOR_USE_GPU:
         cmd.extend(["--runtime=nvidia", "--gpus", "all"])
-        
+    
+    # Mount volumes for input/output data
     cmd.extend([
         "-v", f"{host_image_dir}:/data",
         "-v", f"{host_output_dir}:/data_out",
-        docker_image
     ])
+    
+    # Mount the local run_trufor.py script to patch the container without rebuilding
+    # This allows new features (like --save-noiseprint) to work without image rebuild
+    if TRUFOR_SCRIPT_PATH.exists():
+        host_script_path = str(TRUFOR_SCRIPT_PATH.resolve())
+        # If running in container, convert to host path
+        if is_container_env and is_container_path(TRUFOR_SCRIPT_PATH):
+            host_script_path = str(convert_container_path_to_host(TRUFOR_SCRIPT_PATH))
+        cmd.extend(["-v", f"{host_script_path}:/run_trufor.py:ro"])
+        logger.info(f"Mounting local TruFor script: {host_script_path}")
+    else:
+        logger.warning(f"Local TruFor script not found at {TRUFOR_SCRIPT_PATH}, using container's built-in script")
+    
+    cmd.append(docker_image)
     
     if TRUFOR_USE_GPU:
         cmd.extend(["-gpu", "0"])
@@ -109,6 +130,10 @@ def run_trufor_detection_with_docker(
         "-out", container_output_path,
         "--timeout", str(TRUFOR_TIMEOUT)
     ])
+    
+    # Add save-noiseprint flag if requested
+    if save_noiseprint:
+        cmd.append("--save-noiseprint")
 
     logger.info(f"Running TruFor detection: {' '.join(cmd)}")
 
@@ -150,19 +175,25 @@ def run_trufor_detection_with_docker(
             return False, f"Detection failed: {stderr}", results
 
         # Check output
-        # We expect {basename}_pred_map.png and {basename}_conf_map.png
+        # We expect {basename}_pred_map.png, {basename}_conf_map.png, and optionally {basename}_noiseprint.png
         basename = os.path.splitext(image_filename)[0]
         pred_map_filename = f"{basename}_pred_map.png"
         conf_map_filename = f"{basename}_conf_map.png"
+        noiseprint_filename = f"{basename}_noiseprint.png"
         pred_map_path = os.path.join(output_dir_path, pred_map_filename)
         conf_map_path = os.path.join(output_dir_path, conf_map_filename)
+        noiseprint_path = os.path.join(output_dir_path, noiseprint_filename)
         
         pred_map_exists = os.path.exists(pred_map_path)
         conf_map_exists = os.path.exists(conf_map_path)
+        noiseprint_exists = os.path.exists(noiseprint_path)
         
         if pred_map_exists and conf_map_exists:
             results['pred_map'] = str(convert_host_path_to_container(Path(pred_map_path)))
             results['conf_map'] = str(convert_host_path_to_container(Path(conf_map_path)))
+            # Include noiseprint if it was saved
+            if noiseprint_exists:
+                results['noiseprint'] = str(convert_host_path_to_container(Path(noiseprint_path)))
             return True, "Analysis completed successfully", results
         elif pred_map_exists or conf_map_exists:
             # Partial results - store whatever we found
@@ -170,7 +201,9 @@ def run_trufor_detection_with_docker(
                 results['pred_map'] = str(convert_host_path_to_container(Path(pred_map_path)))
             if conf_map_exists:
                 results['conf_map'] = str(convert_host_path_to_container(Path(conf_map_path)))
-            logger.warning(f"Partial TruFor output: pred_map={pred_map_exists}, conf_map={conf_map_exists}")
+            if noiseprint_exists:
+                results['noiseprint'] = str(convert_host_path_to_container(Path(noiseprint_path)))
+            logger.warning(f"Partial TruFor output: pred_map={pred_map_exists}, conf_map={conf_map_exists}, noiseprint={noiseprint_exists}")
             return True, "Analysis completed with partial results", results
         else:
             # Check if any file was created (fallback for different naming)

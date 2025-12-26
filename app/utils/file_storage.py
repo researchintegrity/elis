@@ -108,7 +108,7 @@ def get_analysis_output_path(user_id: str, analysis_id: str, analysis_type: str)
     Args:
         user_id: User ID
         analysis_id: Analysis ID
-        analysis_type: Type of analysis (e.g., 'single_image_copy_move', 'cross_image_copy_move')
+        analysis_type: Type of analysis (e.g., 'single_image_copy_move', 'cross_image_copy_move', 'external')
         
     Returns:
         Path object for analysis directory
@@ -120,6 +120,8 @@ def get_analysis_output_path(user_id: str, analysis_id: str, analysis_type: str)
         folder_name = "cmfd_cross"
     elif analysis_type == "trufor":
         folder_name = "trufor"
+    elif analysis_type == "external":
+        folder_name = "external"  # Client-side analysis results (ELA, noise, etc.)
     else:
         folder_name = analysis_type
     

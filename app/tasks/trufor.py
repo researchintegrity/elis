@@ -19,7 +19,8 @@ def detect_trufor(
     analysis_id: str,
     image_id: str,
     user_id: str,
-    image_path: str
+    image_path: str,
+    save_noiseprint: bool = False
 ):
     """
     Run TruFor detection on an image asynchronously.
@@ -29,6 +30,7 @@ def detect_trufor(
         image_id: MongoDB ID of the image
         user_id: User ID
         image_path: Path to the image file
+        save_noiseprint: Whether to save the noiseprint map (default: False)
     """
     analyses_col = get_analyses_collection()
     
@@ -60,17 +62,29 @@ def detect_trufor(
             }
         )
         
-        logger.info(f"Starting TruFor detection for analysis {analysis_id} (image {image_id})")
+        logger.info(f"Starting TruFor detection for analysis {analysis_id} (image {image_id}), save_noiseprint={save_noiseprint}")
         
         # Run detection
         success, message, results = run_trufor_detection_with_docker(
             analysis_id=analysis_id,
             user_id=user_id,
             image_path=image_path,
+            save_noiseprint=save_noiseprint,
             status_callback=update_status
         )
         
         if success:
+            # Build results dict, including noiseprint if available
+            results_dict = {
+                "timestamp": datetime.utcnow(),
+                "pred_map": results.get('pred_map'),
+                "conf_map": results.get('conf_map'),
+                "files": results.get('files')
+            }
+            # Include noiseprint if it was saved
+            if results.get('noiseprint'):
+                results_dict["noiseprint"] = results.get('noiseprint')
+            
             # Update with results
             analyses_col.update_one(
                 {"_id": ObjectId(analysis_id)},
@@ -78,12 +92,7 @@ def detect_trufor(
                     "$set": {
                         "status": AnalysisStatus.COMPLETED,
                         "status_message": "Completed",
-                        "results": {
-                            "timestamp": datetime.utcnow(),
-                            "pred_map": results.get('pred_map'),
-                            "conf_map": results.get('conf_map'),
-                            "files": results.get('files')
-                        },
+                        "results": results_dict,
                         "updated_at": datetime.utcnow()
                     }
                 }

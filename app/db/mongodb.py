@@ -118,7 +118,7 @@ def get_annotations_collection():
 
 
 def get_analyses_collection():
-    """Get analyses collection with indexes for copy-move detection"""
+    """Get analyses collection with indexes for copy-move detection and analysis dashboard"""
     collection = db_connection.get_collection("analyses")
     
     # Create indexes for better performance
@@ -128,7 +128,11 @@ def get_analyses_collection():
     collection.create_index("type")
     collection.create_index("status")
     collection.create_index("created_at")
+    # Compound indexes for common Analysis Dashboard queries
     collection.create_index([("user_id", 1), ("created_at", -1)])
+    collection.create_index([("user_id", 1), ("type", 1), ("created_at", -1)])
+    collection.create_index([("user_id", 1), ("status", 1), ("created_at", -1)])
+    collection.create_index([("user_id", 1), ("source_image_id", 1)])
     
     return collection
 
