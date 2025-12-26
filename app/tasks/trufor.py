@@ -80,7 +80,8 @@ def detect_trufor(
                         "status_message": "Completed",
                         "results": {
                             "timestamp": datetime.utcnow(),
-                            "visualization": results.get('visualization'),
+                            "pred_map": results.get('pred_map'),
+                            "conf_map": results.get('conf_map'),
                             "files": results.get('files')
                         },
                         "updated_at": datetime.utcnow()

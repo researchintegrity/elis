@@ -61,7 +61,9 @@ async def download_analysis_result(
     
     Args:
         analysis_id: Analysis ID
-        result_type: Type of result to download ('matches', 'clusters', or 'visualization')
+        result_type: Type of result to download:
+            - Copy-move: 'matches', 'clusters'
+            - TruFor: 'pred_map', 'conf_map'
         current_user: Current authenticated user
         
     Returns:
@@ -70,7 +72,7 @@ async def download_analysis_result(
     user_id_str = str(current_user["_id"])
     
     # Validate result_type - support copy-move and trufor result types
-    valid_types = ("matches", "clusters", "visualization")
+    valid_types = ("matches", "clusters", "pred_map", "conf_map")
     if result_type not in valid_types:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -96,17 +98,23 @@ async def download_analysis_result(
     results = analysis.get("results", {})
     
     # Map result type to the correct key in results
-    if result_type == "visualization":
-        # TruFor uses 'visualization' key directly
-        file_path = results.get("visualization")
+    if result_type in ("pred_map", "conf_map"):
+        # TruFor uses 'pred_map' and 'conf_map' keys directly
+        file_path = results.get(result_type)
         
-        # Fallback: check 'files' array if visualization is not set
+        # Fallback: check 'files' array if the specific key is not set
         # (happens when there's a filename mismatch in TruFor output)
         if not file_path:
             files = results.get("files", [])
             if files and len(files) > 0:
-                # Use the first file from the files array
-                file_path = files[0]
+                # Try to find matching file
+                for f in files:
+                    if result_type == "pred_map" and "_pred_map" in f:
+                        file_path = f
+                        break
+                    elif result_type == "conf_map" and "_conf_map" in f:
+                        file_path = f
+                        break
     else:
         # Copy-move uses '{type}_image' keys
         result_key = f"{result_type}_image"

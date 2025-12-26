@@ -150,20 +150,33 @@ def run_trufor_detection_with_docker(
             return False, f"Detection failed: {stderr}", results
 
         # Check output
-        # We expect {basename}_trufor_result.png
+        # We expect {basename}_pred_map.png and {basename}_conf_map.png
         basename = os.path.splitext(image_filename)[0]
-        expected_output = f"{basename}_trufor_result.png"
-        output_path = os.path.join(output_dir_path, expected_output)
+        pred_map_filename = f"{basename}_pred_map.png"
+        conf_map_filename = f"{basename}_conf_map.png"
+        pred_map_path = os.path.join(output_dir_path, pred_map_filename)
+        conf_map_path = os.path.join(output_dir_path, conf_map_filename)
         
-        if os.path.exists(output_path):
-            results['visualization'] = str(convert_host_path_to_container(Path(output_path)))
+        pred_map_exists = os.path.exists(pred_map_path)
+        conf_map_exists = os.path.exists(conf_map_path)
+        
+        if pred_map_exists and conf_map_exists:
+            results['pred_map'] = str(convert_host_path_to_container(Path(pred_map_path)))
+            results['conf_map'] = str(convert_host_path_to_container(Path(conf_map_path)))
             return True, "Analysis completed successfully", results
+        elif pred_map_exists or conf_map_exists:
+            # Partial results - store whatever we found
+            if pred_map_exists:
+                results['pred_map'] = str(convert_host_path_to_container(Path(pred_map_path)))
+            if conf_map_exists:
+                results['conf_map'] = str(convert_host_path_to_container(Path(conf_map_path)))
+            logger.warning(f"Partial TruFor output: pred_map={pred_map_exists}, conf_map={conf_map_exists}")
+            return True, "Analysis completed with partial results", results
         else:
-            # Check if any file was created
+            # Check if any file was created (fallback for different naming)
             files = os.listdir(output_dir_path)
             if files:
-                # Maybe filename mismatch?
-                logger.warning(f"Expected {expected_output} but found {files}")
+                logger.warning(f"Expected {pred_map_filename} and {conf_map_filename} but found {files}")
                 results['files'] = [str(convert_host_path_to_container(Path(os.path.join(output_dir_path, f)))) for f in files]
                 return True, "Analysis completed (filename mismatch?)", results
             
