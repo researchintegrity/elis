@@ -158,6 +158,86 @@ async def get_analysis(
     return analysis
 
 
+@router.delete("/{analysis_id}", status_code=status.HTTP_200_OK)
+async def delete_analysis(
+    analysis_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Delete an analysis by ID.
+    
+    This will:
+    - Remove the analysis document from the database
+    - Remove the analysis_id reference from associated images
+    - Optionally clean up result files (if they exist)
+    
+    Args:
+        analysis_id: The ID of the analysis to delete
+        
+    Returns:
+        Success message
+    """
+    user_id_str = str(current_user["_id"])
+    analyses_col = get_analyses_collection()
+    
+    # Find the analysis first to verify it exists and user owns it
+    try:
+        analysis = analyses_col.find_one({"_id": ObjectId(analysis_id)})
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid analysis ID format"
+        )
+    
+    if not analysis:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Analysis not found"
+        )
+        
+    if analysis["user_id"] != user_id_str:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to delete this analysis"
+        )
+    
+    # Get image IDs to update (remove analysis reference)
+    image_ids = []
+    if analysis.get("source_image_id"):
+        image_ids.append(analysis["source_image_id"])
+    if analysis.get("target_image_id"):
+        image_ids.append(analysis["target_image_id"])
+    
+    # Remove analysis reference from associated images
+    if image_ids:
+        images_col = get_images_collection()
+        for img_id in image_ids:
+            try:
+                images_col.update_one(
+                    {"_id": ObjectId(img_id)},
+                    {"$pull": {"analysis_ids": analysis_id}}
+                )
+            except Exception:
+                pass  # Image may have been deleted, continue
+    
+    # Optionally clean up result files
+    results = analysis.get("results", {})
+    for key, value in results.items():
+        if isinstance(value, str) and os.path.isfile(value):
+            try:
+                os.remove(value)
+            except Exception:
+                pass  # File may not exist or be inaccessible
+    
+    # Delete the analysis document
+    analyses_col.delete_one({"_id": ObjectId(analysis_id)})
+    
+    return {
+        "success": True,
+        "message": f"Analysis {analysis_id} deleted successfully"
+    }
+
+
 @router.get("/{analysis_id}/results/{result_type}/download")
 async def download_analysis_result(
     analysis_id: str,
