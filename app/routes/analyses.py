@@ -220,14 +220,31 @@ async def delete_analysis(
             except Exception:
                 pass  # Image may have been deleted, continue
     
-    # Optionally clean up result files
+    # Clean up result files and the analysis folder
     results = analysis.get("results", {})
+    analysis_dirs_to_remove = set()
+    
+    # First, identify and remove individual result files
     for key, value in results.items():
         if isinstance(value, str) and os.path.isfile(value):
             try:
+                # Track the parent directory (analysis folder)
+                parent_dir = os.path.dirname(value)
+                analysis_dirs_to_remove.add(parent_dir)
                 os.remove(value)
             except Exception:
                 pass  # File may not exist or be inaccessible
+    
+    # Now remove the analysis folder(s) if they're empty or contain only this analysis's files
+    import shutil
+    for analysis_dir in analysis_dirs_to_remove:
+        if os.path.isdir(analysis_dir):
+            try:
+                # Check if the directory name matches the analysis_id (safety check)
+                if analysis_id in analysis_dir:
+                    shutil.rmtree(analysis_dir)
+            except Exception:
+                pass  # Directory may not exist or be inaccessible
     
     # Delete the analysis document
     analyses_col.delete_one({"_id": ObjectId(analysis_id)})
