@@ -20,8 +20,11 @@ from app.utils.file_storage import (
     validate_image,
     save_image_file,
     check_storage_quota,
-    update_user_storage_in_db
+    update_user_storage_in_db,
+    get_thumbnail_path
 )
+from PIL import Image, ImageOps
+import io
 from app.utils.metadata_parser import extract_exif_metadata
 from app.config.storage_quota import DEFAULT_USER_STORAGE_QUOTA
 from app.config.settings import convert_host_path_to_container
@@ -327,6 +330,96 @@ async def list_images(
         )
 
 
+@router.get("/tags", response_model=List[str])
+async def get_all_tags(
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get all unique image tags/categories for the current user.
+    
+    Uses MongoDB's distinct() for efficient retrieval without loading image data.
+    This is much more efficient than fetching images and extracting tags client-side.
+    
+    Returns:
+        List of unique tag strings, sorted alphabetically
+    """
+    user_id_str = str(current_user["_id"])
+    images_col = get_images_collection()
+    
+    # Use MongoDB distinct() for efficient unique value retrieval
+    # This queries the database index directly without loading documents
+    tags = images_col.distinct("image_type", {"user_id": user_id_str})
+    
+    # Filter out None/empty values and sort
+    unique_tags = sorted([tag for tag in tags if tag])
+    
+    return unique_tags
+
+
+@router.get("/ids", response_model=dict)
+async def get_all_image_ids(
+    image_type: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    search: Optional[str] = None,
+    source_type: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get all image IDs for the current user in a single request.
+    
+    This is optimized for "Select All" operations where only IDs are needed.
+    Returns a lightweight response with just IDs instead of full image objects.
+    
+    Supports the same filters as the main /images endpoint.
+    
+    Returns:
+        {"ids": ["id1", "id2", ...], "count": N}
+    """
+    user_id_str = str(current_user["_id"])
+    images_col = get_images_collection()
+    
+    # Build query with same logic as list_images
+    query = {"user_id": user_id_str}
+    
+    # Apply filters
+    if image_type:
+        tags = [t.strip() for t in image_type.split(",") if t.strip()]
+        if tags:
+            query["image_type"] = {"$in": tags}
+    
+    if source_type and source_type != "all":
+        query["source_type"] = source_type
+    
+    if date_from:
+        try:
+            from datetime import datetime
+            dt = datetime.fromisoformat(date_from.replace('Z', '+00:00'))
+            query.setdefault("created_at", {})["$gte"] = dt
+        except ValueError:
+            pass
+    
+    if date_to:
+        try:
+            from datetime import datetime
+            dt = datetime.fromisoformat(date_to.replace('Z', '+00:00'))
+            query.setdefault("created_at", {})["$lte"] = dt
+        except ValueError:
+            pass
+    
+    if search:
+        search_regex = {"$regex": search, "$options": "i"}
+        query["$or"] = [
+            {"filename": search_regex},
+            {"original_filename": search_regex}
+        ]
+    
+    # Only fetch _id field for efficiency
+    cursor = images_col.find(query, {"_id": 1})
+    ids = [str(doc["_id"]) for doc in cursor]
+    
+    return {"ids": ids, "count": len(ids)}
+
 @router.get("/{image_id}", response_model=ImageResponse)
 async def get_image(
     image_id: str,
@@ -410,6 +503,75 @@ async def download_image(
         path=file_path,
         filename=img["filename"],
         media_type=media_type
+    )
+
+
+@router.get("/{image_id}/thumbnail")
+async def get_image_thumbnail(
+    image_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get a thumbnail version of an image
+    
+    - Checks if thumbnail exists on disk
+    - If not, generates it from original image
+    - Returns cached thumbnail
+    
+    Args:
+        image_id: Image ID
+        current_user: Current authenticated user
+        
+    Returns:
+        FileResponse with thumbnail image
+    """
+    user_id_str = str(current_user["_id"])
+    
+    # Verify image belongs to user
+    img = await get_owned_resource(
+        get_images_collection,
+        image_id,
+        user_id_str,
+        "Image"
+    )
+    
+    # Check if thumbnail already exists
+    thumb_path = get_thumbnail_path(user_id_str, image_id)
+    
+    if not thumb_path.exists():
+        # Generate thumbnail
+        file_path = img["file_path"]
+        if not Path(file_path).exists():
+             raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Original file not found"
+            )
+            
+        try:
+            # Open original image
+            with Image.open(file_path) as image:
+                # Convert to RGB if necessary (e.g. for RGBA/P PNGs saved as JPG)
+                if image.mode in ('RGBA', 'P'):
+                    image = image.convert('RGB')
+                
+                # Resize keeping aspect ratio (max 300x300)
+                image.thumbnail((300, 300), Image.Resampling.LANCZOS)
+                
+                # Save as JPEG
+                image.save(thumb_path, "JPEG", quality=85)
+                
+        except Exception as e:
+            # If thumbnail generation fails, fallback to original (pass-through)
+            # Log error ideally
+            print(f"Thumbnail generation failed: {e}") 
+            # Fallback to download_image logic
+            return await download_image(image_id, current_user)
+
+    # Return thumbnail
+    return FileResponse(
+        path=thumb_path,
+        filename=f"thumb_{img['filename']}",
+        media_type="image/jpeg"
     )
 
 
