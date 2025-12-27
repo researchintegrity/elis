@@ -20,8 +20,11 @@ from app.utils.file_storage import (
     validate_image,
     save_image_file,
     check_storage_quota,
-    update_user_storage_in_db
+    update_user_storage_in_db,
+    get_thumbnail_path
 )
+from PIL import Image, ImageOps
+import io
 from app.utils.metadata_parser import extract_exif_metadata
 from app.config.storage_quota import DEFAULT_USER_STORAGE_QUOTA
 from app.config.settings import convert_host_path_to_container
@@ -410,6 +413,75 @@ async def download_image(
         path=file_path,
         filename=img["filename"],
         media_type=media_type
+    )
+
+
+@router.get("/{image_id}/thumbnail")
+async def get_image_thumbnail(
+    image_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get a thumbnail version of an image
+    
+    - Checks if thumbnail exists on disk
+    - If not, generates it from original image
+    - Returns cached thumbnail
+    
+    Args:
+        image_id: Image ID
+        current_user: Current authenticated user
+        
+    Returns:
+        FileResponse with thumbnail image
+    """
+    user_id_str = str(current_user["_id"])
+    
+    # Verify image belongs to user
+    img = await get_owned_resource(
+        get_images_collection,
+        image_id,
+        user_id_str,
+        "Image"
+    )
+    
+    # Check if thumbnail already exists
+    thumb_path = get_thumbnail_path(user_id_str, image_id)
+    
+    if not thumb_path.exists():
+        # Generate thumbnail
+        file_path = img["file_path"]
+        if not Path(file_path).exists():
+             raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Original file not found"
+            )
+            
+        try:
+            # Open original image
+            with Image.open(file_path) as image:
+                # Convert to RGB if necessary (e.g. for RGBA/P PNGs saved as JPG)
+                if image.mode in ('RGBA', 'P'):
+                    image = image.convert('RGB')
+                
+                # Resize keeping aspect ratio (max 300x300)
+                image.thumbnail((300, 300), Image.Resampling.LANCZOS)
+                
+                # Save as JPEG
+                image.save(thumb_path, "JPEG", quality=85)
+                
+        except Exception as e:
+            # If thumbnail generation fails, fallback to original (pass-through)
+            # Log error ideally
+            print(f"Thumbnail generation failed: {e}") 
+            # Fallback to download_image logic
+            return await download_image(image_id, current_user)
+
+    # Return thumbnail
+    return FileResponse(
+        path=thumb_path,
+        filename=f"thumb_{img['filename']}",
+        media_type="image/jpeg"
     )
 
 

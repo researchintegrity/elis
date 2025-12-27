@@ -98,6 +98,25 @@ def get_panel_output_path(user_id: str, doc_id: str = None) -> Path:
     return panels_path
 
 
+def get_thumbnail_path(user_id: str, image_id: str) -> Path:
+    """
+    Get the path for a generated thumbnail
+    
+    Thumbnails are saved to:
+    /workspace/{user_id}/images/thumbnails/{image_id}.jpg
+    
+    Args:
+        user_id: User ID
+        image_id: Image ID
+        
+    Returns:
+        Path object for thumbnail file
+    """
+    thumb_dir = UPLOAD_DIR / user_id / "images" / "thumbnails"
+    thumb_dir.mkdir(parents=True, exist_ok=True)
+    return thumb_dir / f"{image_id}.jpg"
+
+
 def get_analysis_output_path(user_id: str, analysis_id: str, analysis_type: str) -> Path:
     """
     Get the path where analysis results should be saved

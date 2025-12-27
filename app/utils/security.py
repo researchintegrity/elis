@@ -77,12 +77,21 @@ def create_access_token(
     return encoded_jwt
 
 
-async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
+from fastapi import Query
+
+# Update OAuth2 scheme to not auto-error, allowing manual handling
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login", auto_error=False)
+
+async def get_current_user(
+    token: Optional[str] = Depends(oauth2_scheme),
+    token_query: Optional[str] = Query(None, alias="token")
+) -> dict:
     """
-    Get current authenticated user from JWT token
+    Get current authenticated user from JWT token (Head or Query)
     
     Args:
-        token: JWT token from Authorization header
+        token: JWT token from Authorization header or Query
+        token_query: JWT token from query string (alias='token')
         
     Returns:
         User document from database
@@ -96,8 +105,14 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
         headers={"WWW-Authenticate": "Bearer"},
     )
     
+    # Priority: Header > Query
+    effective_token = token or token_query
+    
+    if not effective_token:
+        raise credentials_exception
+    
     try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        payload = jwt.decode(effective_token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
         username: str = payload.get("sub")
         if username is None:
             raise credentials_exception

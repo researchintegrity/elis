@@ -191,8 +191,12 @@ async def list_images(
     total_count = images_col.count_documents(query)
     
     # Query images with pagination
+    # Query images with pagination - optimize projection to exclude heavy fields
+    # Exclude exif_metadata which can be large and isn't needed for the gallery view
+    projection = {"exif_metadata": 0}
+    
     images = list(
-        images_col.find(query)
+        images_col.find(query, projection)
         .sort(sort_by, sort_order)
         .skip(offset)
         .limit(limit)
