@@ -179,6 +179,58 @@ async def list_analyses(
         )
 
 
+@router.get("/by-image/{image_id}", response_model=list)
+async def list_analyses_by_image(
+    image_id: str,
+    current_user: dict = Depends(get_current_user),
+    limit: int = Query(50, ge=1, le=100, description="Maximum number of analyses to return"),
+):
+    """
+    Get all analyses associated with a specific image.
+    
+    Returns analyses where this image is either the source or target image.
+    Useful for showing the complete analysis history of a flagged image.
+    
+    Args:
+        image_id: The image ID to find analyses for
+        current_user: Current authenticated user
+        limit: Maximum number of analyses to return
+        
+    Returns:
+        List of analyses sorted by creation date (newest first)
+    """
+    try:
+        user_id_str = str(current_user["_id"])
+        analyses_col = get_analyses_collection()
+        
+        # Find analyses where this image is source or target
+        filter_query = {
+            "user_id": user_id_str,
+            "$or": [
+                {"source_image_id": image_id},
+                {"target_image_id": image_id}
+            ]
+        }
+        
+        # Query analyses, sorted by newest first
+        analyses = list(
+            analyses_col.find(filter_query)
+            .sort("created_at", -1)
+            .limit(limit)
+        )
+        
+        # Convert ObjectId to string for JSON serialization
+        for analysis in analyses:
+            analysis["_id"] = str(analysis["_id"])
+        
+        return analyses
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve analyses for image: {str(e)}"
+        )
+
+
 @router.get("/{analysis_id}", response_model=AnalysisResponse)
 async def get_analysis(
     analysis_id: str,

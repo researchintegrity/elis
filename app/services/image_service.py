@@ -109,6 +109,8 @@ async def list_images(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     search: Optional[str] = None,
+    flagged: Optional[bool] = None,
+    include_annotated: bool = False,
     limit: int = 50,
     offset: int = 0,
     sort_by: str = "uploaded_date",
@@ -128,6 +130,8 @@ async def list_images(
         date_from: Optional ISO date string to filter images uploaded on or after
         date_to: Optional ISO date string to filter images uploaded on or before
         search: Optional search string for filename (case-insensitive)
+        flagged: Optional filter by flagged status - True for flagged images only
+        include_annotated: If True and flagged=True, also include images with annotations
         limit: Maximum number of images to return
         offset: Number of images to skip
         sort_by: Field to sort by (default: "uploaded_date")
@@ -145,6 +149,7 @@ async def list_images(
     from datetime import datetime
     
     images_col = get_images_collection()
+    annotations_col = get_annotations_collection()
     
     # Validate source_type if provided
     if source_type and source_type not in ["extracted", "uploaded", "panel"]:
@@ -158,6 +163,19 @@ async def list_images(
     
     if document_id:
         query["document_id"] = document_id
+    
+    # Handle flagged filter with optional include_annotated
+    if flagged is True and include_annotated:
+        # Get all image IDs that have annotations for this user
+        annotated_image_ids = annotations_col.distinct("image_id", {"user_id": user_id})
+        
+        # Use OR condition: flagged OR has annotations
+        query["$or"] = [
+            {"is_flagged": True},
+            {"_id": {"$in": [ObjectId(id) for id in annotated_image_ids if ObjectId.is_valid(id)]}}
+        ]
+    elif flagged is not None:
+        query["is_flagged"] = flagged
     
     # Image type filter - match any of the provided types
     if image_type:

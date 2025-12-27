@@ -320,6 +320,9 @@ class ImageResponse(BaseModel):
     analysis_results: Dict[str, Dict] = Field(default_factory=dict, description="Results of analyses")
     analysis_ids: List[str] = Field(default_factory=list, description="List of analysis IDs involving this image")
     
+    # Flagged for review
+    is_flagged: bool = Field(default=False, description="Whether image is flagged as suspicious for review")
+    
     uploaded_date: datetime
     user_storage_used: int = 0  # Total bytes used by user
     user_storage_remaining: int = 1073741824  # Remaining quota
@@ -369,6 +372,7 @@ class ImageInDB(BaseModel):
     document_id: Optional[str] = None
     uploaded_date: datetime = Field(default_factory=datetime.utcnow)
     analysis_ids: List[str] = Field(default_factory=list)
+    is_flagged: bool = Field(default=False, description="Whether image is flagged as suspicious")
 
 
 class PaginatedImageResponse(BaseModel):

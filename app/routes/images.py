@@ -238,6 +238,8 @@ async def list_images(
     date_from: str = Query(None, description="Filter images from this date (ISO format YYYY-MM-DD)"),
     date_to: str = Query(None, description="Filter images until this date (ISO format YYYY-MM-DD)"),
     search: str = Query(None, description="Search in filename (case-insensitive)"),
+    flagged: Optional[bool] = Query(None, description="Filter by flagged status - True for flagged images only"),
+    include_annotated: bool = Query(False, description="If true with flagged=true, also include images with annotations"),
     page: Optional[int] = Query(None, ge=1, description="Page number (1-indexed). If provided, returns paginated response."),
     per_page: int = Query(24, ge=1, le=100, description="Number of items per page (1-100, default 24)"),
     limit: int = Query(50, description="DEPRECATED: Use per_page instead. Maximum number of images to return"),
@@ -295,6 +297,8 @@ async def list_images(
             date_from=date_from,
             date_to=date_to,
             search=search,
+            flagged=flagged,
+            include_annotated=include_annotated,
             limit=actual_limit,
             offset=actual_offset
         )
@@ -573,6 +577,65 @@ async def get_image_thumbnail(
         filename=f"thumb_{img['filename']}",
         media_type="image/jpeg"
     )
+
+
+@router.patch("/{image_id}/flag", response_model=ImageResponse)
+async def toggle_image_flag(
+    image_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Toggle the flagged status of an image.
+    
+    Flagged images are marked as suspicious for later review.
+    
+    Args:
+        image_id: Image ID to toggle flag status
+        current_user: Current authenticated user
+        
+    Returns:
+        Updated ImageResponse with new is_flagged value
+    """
+    user_id_str = str(current_user["_id"])
+    user_quota = current_user.get("storage_limit_bytes", DEFAULT_USER_STORAGE_QUOTA)
+    
+    try:
+        img_oid = ObjectId(image_id)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid image ID format"
+        )
+    
+    images_col = get_images_collection()
+    
+    # Find the image
+    img = images_col.find_one({
+        "_id": img_oid,
+        "user_id": user_id_str
+    })
+    
+    if not img:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Image not found"
+        )
+    
+    # Toggle the flag
+    new_flag_status = not img.get("is_flagged", False)
+    
+    # Update in database
+    images_col.update_one(
+        {"_id": img_oid},
+        {"$set": {"is_flagged": new_flag_status}}
+    )
+    
+    # Get updated image
+    img = images_col.find_one({"_id": img_oid})
+    img["_id"] = str(img["_id"])
+    img = augment_with_quota(img, user_id_str, user_quota)
+    
+    return ImageResponse(**img)
 
 
 @router.delete("/{image_id}", status_code=status.HTTP_204_NO_CONTENT)
