@@ -773,6 +773,7 @@ class CBIRSearchResult(BaseModel):
     document_id: Optional[str] = Field(None, description="Source document ID if extracted")
     image_type: List[str] = Field(default_factory=list, description="Image type labels")
     cbir_labels: List[str] = Field(default_factory=list, description="CBIR index labels")
+    is_flagged: bool = Field(default=False, description="Whether image is flagged as suspicious")
 
 
 class CBIRSearchResponse(BaseModel):

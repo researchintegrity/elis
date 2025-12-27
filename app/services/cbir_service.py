@@ -188,6 +188,7 @@ def enrich_search_results(
                 "document_id": image.get("document_id"),
                 "image_type": image.get("image_type", []),
                 "uploaded_date": image.get("uploaded_date"),
+                "is_flagged": image.get("is_flagged", False),
             })
         
         enriched.append(enriched_result)
