@@ -42,7 +42,7 @@ async def create_relationship(
     Create a bidirectional relationship between two images.
     
     - Normalizes image IDs (sorted) to prevent duplicates
-    - Auto-flags both images if either is flagged
+    - ALWAYS flags both images when relationship is created
     - Returns existing relationship if already exists (upsert behavior)
     
     Args:
@@ -102,18 +102,13 @@ async def create_relationship(
     result = relationships_col.insert_one(relationship_doc)
     relationship_doc["_id"] = str(result.inserted_id)
     
-    # Auto-flag: if either image is flagged, flag both
-    img1 = images_col.find_one({"_id": ObjectId(norm_id1), "user_id": user_id})
-    img2 = images_col.find_one({"_id": ObjectId(norm_id2), "user_id": user_id})
-    
-    if img1 and img2:
-        should_flag = img1.get("is_flagged", False) or img2.get("is_flagged", False)
-        if should_flag:
-            images_col.update_many(
-                {"_id": {"$in": [ObjectId(norm_id1), ObjectId(norm_id2)]}, "user_id": user_id},
-                {"$set": {"is_flagged": True}}
-            )
-            logger.info(f"Auto-flagged images {norm_id1} and {norm_id2} due to relationship")
+    # Always flag both images when a relationship is created
+    # This ensures related images are marked for review
+    images_col.update_many(
+        {"_id": {"$in": [ObjectId(norm_id1), ObjectId(norm_id2)]}, "user_id": user_id},
+        {"$set": {"is_flagged": True}}
+    )
+    logger.info(f"Flagged images {norm_id1} and {norm_id2} due to new relationship")
     
     logger.info(f"Created relationship between {norm_id1} and {norm_id2} (source: {source_type})")
     return relationship_doc
@@ -228,7 +223,7 @@ async def get_relationships_for_image(
 async def get_relationship_graph(
     image_id: str,
     user_id: str,
-    max_depth: int = 3
+    max_depth: int = 5
 ) -> Dict[str, Any]:
     """
     Build the full relationship graph starting from an image using BFS.
@@ -236,7 +231,7 @@ async def get_relationship_graph(
     Args:
         image_id: Starting image for graph exploration
         user_id: User who owns the relationships
-        max_depth: Maximum BFS depth (default 3)
+        max_depth: Maximum BFS depth (default 5, 0 = unlimited)
     
     Returns:
         Dictionary with nodes, edges, and mst_edges for visualization
@@ -251,47 +246,63 @@ async def get_relationship_graph(
     edges: List[Dict] = []
     edge_set: Set[Tuple[str, str]] = set()  # To prevent duplicate edges
     
+    # Store all visited IDs to count total connected component size
+    all_connected_count = 0
+    
     while queue:
         current_id, depth = queue.pop(0)
         
         if current_id in visited:
             continue
         visited.add(current_id)
+        all_connected_count += 1
         
-        # Get image info for node
-        try:
-            img = images_col.find_one(
-                {"_id": ObjectId(current_id), "user_id": user_id},
-                {"filename": 1, "is_flagged": 1}
-            )
-            if img:
+        # Determine if this node should be part of the visualization graph
+        include_in_graph = (max_depth == 0) or (depth <= max_depth)
+        
+        # Get image info for node ONLY if in graph
+        if include_in_graph:
+            try:
+                img = images_col.find_one(
+                    {"_id": ObjectId(current_id), "user_id": user_id},
+                    {"filename": 1, "is_flagged": 1}
+                )
+                if img:
+                    nodes_map[current_id] = {
+                        "id": current_id,
+                        "label": img.get("filename", f"Image {current_id[-6:]}"),
+                        "is_flagged": img.get("is_flagged", False),
+                        "is_query": current_id == image_id
+                    }
+            except Exception:
                 nodes_map[current_id] = {
                     "id": current_id,
-                    "label": img.get("filename", f"Image {current_id[-6:]}"),
-                    "is_flagged": img.get("is_flagged", False),
+                    "label": f"Image {current_id[-6:]}",
+                    "is_flagged": False,
                     "is_query": current_id == image_id
                 }
-        except Exception:
-            nodes_map[current_id] = {
-                "id": current_id,
-                "label": f"Image {current_id[-6:]}",
-                "is_flagged": False,
-                "is_query": current_id == image_id
-            }
         
-        # Get relationships from this node
-        if depth < max_depth:
-            rels = relationships_col.find({
-                "user_id": user_id,
-                "$or": [
-                    {"image1_id": current_id},
-                    {"image2_id": current_id}
-                ]
-            })
+        # Get relationships from this node (always fetch to traverse full component)
+        rels = list(relationships_col.find({
+            "user_id": user_id,
+            "$or": [
+                {"image1_id": current_id},
+                {"image2_id": current_id}
+            ]
+        }))
+        
+        if include_in_graph:
+            logger.info(f"BFS depth {depth}: Node {current_id[-8:]} has {len(rels)} relationships")
+        
+        for rel in rels:
+            other_id = rel["image2_id"] if rel["image1_id"] == current_id else rel["image1_id"]
             
-            for rel in rels:
-                other_id = rel["image2_id"] if rel["image1_id"] == current_id else rel["image1_id"]
-                
+            # Check if we should include this edge in visualization
+            # Include edge if source is within exploration range AND max_depth logic holds
+            # (We only add edges extending FROM current node if we are strictly less than max_depth)
+            include_edge = (max_depth == 0) or (depth < max_depth)
+            
+            if include_edge:
                 # Create edge (normalized to prevent duplicates)
                 edge_key = tuple(sorted([current_id, other_id]))
                 if edge_key not in edge_set:
@@ -303,10 +314,17 @@ async def get_relationship_graph(
                         "source_type": rel.get("source_type", "manual"),
                         "is_mst_edge": False  # Updated after MST computation
                     })
-                
-                # Add to queue for exploration
-                if other_id not in visited:
-                    queue.append((other_id, depth + 1))
+            
+            # Add to queue for exploration (continue traversing even if not including in graph)
+            if other_id not in visited:
+                # Check if already in queue to avoid duplicates in queue?
+                # Using visited set check at pop time handles loops, but checking queue could save memory.
+                # For now, simple standard BFS is fine.
+                queue.append((other_id, depth + 1))
+                if include_in_graph:
+                     logger.debug(f"  -> Added {other_id[-8:]} to queue at depth {depth + 1}")
+
+    logger.info(f"Graph for {image_id[-8:]}: {len(nodes_map)} nodes, {len(edges)} edges. Total connected: {all_connected_count}")
     
     # Compute Maximum Spanning Tree
     mst_edges = compute_max_spanning_tree(list(nodes_map.keys()), edges)
@@ -321,7 +339,8 @@ async def get_relationship_graph(
         "query_image_id": image_id,
         "nodes": list(nodes_map.values()),
         "edges": edges,
-        "mst_edges": mst_edges
+        "mst_edges": mst_edges,
+        "total_nodes_count": all_connected_count
     }
 
 

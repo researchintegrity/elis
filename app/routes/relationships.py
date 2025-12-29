@@ -192,7 +192,7 @@ async def get_relationships_for_image(
 )
 async def get_relationship_graph(
     image_id: str,
-    max_depth: int = Query(3, ge=1, le=5, description="Maximum exploration depth"),
+    max_depth: int = Query(5, ge=0, description="Maximum exploration depth (0 = unlimited)"),
     current_user: dict = Depends(get_current_user)
 ):
     """

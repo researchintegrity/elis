@@ -1218,6 +1218,10 @@ class RelationshipGraphResponse(BaseModel):
         default_factory=list,
         description="Maximum Spanning Tree edges (for darker rendering)"
     )
+    total_nodes_count: int = Field(
+        default=0,
+        description="Total number of nodes in the full connected graph (unlimited depth)"
+    )
 
     class Config:
         json_schema_extra = {
