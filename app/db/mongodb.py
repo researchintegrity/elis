@@ -117,6 +117,38 @@ def get_annotations_collection():
     return collection
 
 
+def get_single_annotations_collection():
+    """Get single_annotations collection for single-image annotations"""
+    collection = db_connection.get_collection("single_annotations")
+    
+    # Create indexes for better performance
+    collection.create_index("user_id")
+    collection.create_index("image_id")
+    collection.create_index("created_at")
+    collection.create_index([("user_id", 1), ("image_id", 1)])
+    collection.create_index([("image_id", 1), ("created_at", -1)])
+    
+    return collection
+
+
+def get_dual_annotations_collection():
+    """Get dual_annotations collection for cross-image annotations"""
+    collection = db_connection.get_collection("dual_annotations")
+    
+    # Create indexes for better performance
+    collection.create_index("user_id")
+    collection.create_index("source_image_id")  # Image where annotation is drawn
+    collection.create_index("target_image_id")  # Linked target image
+    collection.create_index("link_id")
+    collection.create_index("created_at")
+    collection.create_index([("user_id", 1), ("source_image_id", 1)])
+    collection.create_index([("user_id", 1), ("target_image_id", 1)])
+    collection.create_index([("user_id", 1), ("link_id", 1)])
+    collection.create_index([("source_image_id", 1), ("target_image_id", 1)])
+    
+    return collection
+
+
 def get_analyses_collection():
     """Get analyses collection with indexes for copy-move detection and analysis dashboard"""
     collection = db_connection.get_collection("analyses")

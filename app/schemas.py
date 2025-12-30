@@ -507,95 +507,116 @@ class CoordinateInfo(BaseModel):
         }
 
 
-class AnnotationCreate(BaseModel):
-    """Annotation creation request"""
+# Legacy Annotation Schemas removed per user request
+
+
+
+# ============================================================================
+# Single Annotation Schemas (for single-image annotations)
+# ============================================================================
+
+class SingleAnnotationCreate(BaseModel):
+    """Single-image annotation creation request"""
     image_id: str = Field(..., description="ID of the image being annotated")
     text: str = Field("", max_length=1000, description="Annotation text/description")
     coords: CoordinateInfo = Field(..., description="Annotation coordinates")
-    type: Optional[str] = Field("manipulation", description="Annotation type/label (e.g., manipulation, copy-move, splicing)")
-    group_id: Optional[int] = Field(None, description="Group ID for related annotations (e.g., copy-move pairs)")
-    shape_type: Optional[Literal["rectangle", "ellipse", "polygon"]] = Field("rectangle", description="Shape type: rectangle, ellipse, or polygon")
-    # Cross-image annotation linking
-    link_id: Optional[str] = Field(None, description="Link ID for cross-image annotation pairs (same link_id = linked pair)")
-    linked_image_id: Optional[str] = Field(None, description="ID of the other image in the linked pair")
+    type: Optional[str] = Field("manipulation", description="Annotation type/label")
+    shape_type: Optional[Literal["rectangle", "ellipse", "polygon"]] = Field("rectangle", description="Shape type")
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "image_id": "507f1f77bcf86cd799439013",
                 "text": "Detected manipulation region",
-                "coords": {
-                    "x": 25.5,
-                    "y": 30.1,
-                    "width": 10.2,
-                    "height": 15.8
-                },
+                "coords": {"x": 25.5, "y": 30.1, "width": 10.2, "height": 15.8},
                 "type": "manipulation",
-                "group_id": None,
                 "shape_type": "rectangle"
             }
         }
 
 
-class AnnotationResponse(BaseModel):
-    """Annotation response model"""
+class SingleAnnotationResponse(BaseModel):
+    """Single-image annotation response model"""
     id: str = Field(alias="_id", serialization_alias="_id")
     user_id: str
     image_id: str
     text: str
     coords: CoordinateInfo
     type: Optional[str] = "manipulation"
-    group_id: Optional[int] = None
-    shape_type: Optional[Literal["rectangle", "ellipse", "polygon"]] = "rectangle"
-    # Cross-image annotation linking
-    link_id: Optional[str] = None
-    linked_image_id: Optional[str] = None
+    shape_type: Optional[str] = "rectangle"
     created_at: datetime
     updated_at: datetime
 
     class Config:
         from_attributes = True
         populate_by_name = True
+
+
+# ============================================================================
+# Dual Annotation Schemas (for cross-image annotations)
+# ============================================================================
+
+class DualAnnotationCreate(BaseModel):
+    """Dual-image annotation creation request - annotation box on one image linked to another"""
+    source_image_id: str = Field(..., description="Image where this annotation is drawn")
+    target_image_id: str = Field(..., description="The linked target image")
+    link_id: str = Field(..., description="Unique ID linking source and target annotations")
+    coords: CoordinateInfo = Field(..., description="Annotation coordinates")
+    pair_name: Optional[str] = Field(None, description="User-defined pair name (e.g., 'Pair 1')")
+    pair_color: Optional[str] = Field(None, description="Pair color hex code")
+    text: str = Field("", max_length=1000, description="Annotation text/description")
+    shape_type: Optional[Literal["rectangle", "ellipse", "polygon"]] = Field("rectangle", description="Shape type")
+
+    class Config:
         json_schema_extra = {
             "example": {
-                "_id": "507f1f77bcf86cd799439014",
-                "user_id": "507f1f77bcf86cd799439011",
-                "image_id": "507f1f77bcf86cd799439013",
-                "text": "Núcleo celular identificado",
-                "coords": {
-                    "x": 25.5,
-                    "y": 30.1,
-                    "width": 10.2,
-                    "height": 15.8
-                },
-                "type": "manipulation",
-                "group_id": None,
-                "shape_type": "rectangle",
-                "created_at": "2025-01-01T10:00:00",
-                "updated_at": "2025-01-01T10:00:00"
+                "source_image_id": "507f1f77bcf86cd799439013",
+                "target_image_id": "507f1f77bcf86cd799439014",
+                "link_id": "link_abc123",
+                "coords": {"x": 25.5, "y": 30.1, "width": 10.2, "height": 15.8},
+                "pair_name": "Pair 1",
+                "pair_color": "#EF4444",
+                "text": "Matched region",
+                "shape_type": "rectangle"
             }
         }
 
 
-# ============================================================================
-# Batch Annotation Schemas
-# ============================================================================
+class DualAnnotationResponse(BaseModel):
+    """Dual-image annotation response model"""
+    id: str = Field(alias="_id", serialization_alias="_id")
+    user_id: str
+    source_image_id: str
+    target_image_id: str
+    link_id: str
+    coords: CoordinateInfo
+    pair_name: Optional[str] = None
+    pair_color: Optional[str] = None
+    text: str
+    shape_type: Optional[str] = "rectangle"
+    created_at: datetime
+    updated_at: datetime
 
-class AnnotationBatchCreate(BaseModel):
-    """Batch annotation creation for linked pairs"""
-    annotations: List[AnnotationCreate] = Field(..., min_length=1, max_length=50, description="List of annotations to create")
+    class Config:
+        from_attributes = True
+        populate_by_name = True
+
+
+class DualAnnotationBatchCreate(BaseModel):
+    """Batch create dual annotations"""
+    annotations: List[DualAnnotationCreate] = Field(..., min_length=1, max_length=100, description="List of dual annotations to create")
 
     class Config:
         json_schema_extra = {
             "example": {
                 "annotations": [
                     {
-                        "image_id": "507f1f77bcf86cd799439013",
-                        "text": "Matched region A",
-                        "coords": {"x": 25.5, "y": 30.1, "width": 10.2, "height": 15.8},
-                        "type": "copy-move",
+                        "source_image_id": "507f1f77bcf86cd799439013",
+                        "target_image_id": "507f1f77bcf86cd799439014",
                         "link_id": "link_abc123",
-                        "linked_image_id": "507f1f77bcf86cd799439014"
+                        "coords": {"x": 25.5, "y": 30.1, "width": 10.2, "height": 15.8},
+                        "pair_name": "Pair 1",
+                        "pair_color": "#EF4444"
                     }
                 ]
             }

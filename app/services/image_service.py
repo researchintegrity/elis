@@ -7,7 +7,8 @@ from typing import List, Dict, Any, Optional
 from bson import ObjectId
 from app.db.mongodb import (
     get_images_collection,
-    get_annotations_collection
+    get_annotations_collection,
+    get_dual_annotations_collection
 )
 from app.utils.file_storage import (
     delete_file,
@@ -122,6 +123,7 @@ async def list_images(
     date_to: Optional[str] = None,
     search: Optional[str] = None,
     flagged: Optional[bool] = None,
+    linked_to_image_id: Optional[str] = None,
     include_annotated: bool = False,
     limit: int = 50,
     offset: int = 0,
@@ -216,6 +218,39 @@ async def list_images(
     # Search filter - case-insensitive regex on filename
     if search:
         query["filename"] = {"$regex": re.escape(search), "$options": "i"}
+
+    # Linked image filter (Dual Annotations)
+    if linked_to_image_id:
+        dual_col = get_dual_annotations_collection()
+        # Find all dual annotations where the given image source OR target
+        linked_ids = set()
+        cursor = dual_col.find({
+            "user_id": user_id,
+            "$or": [
+                {"source_image_id": linked_to_image_id},
+                {"target_image_id": linked_to_image_id}
+            ]
+        })
+        
+        for doc in cursor:
+            sid = doc.get("source_image_id")
+            tid = doc.get("target_image_id")
+            # Add the OTHER image ID to the set
+            if sid == linked_to_image_id and tid:
+                linked_ids.add(tid)
+            elif tid == linked_to_image_id and sid:
+                linked_ids.add(sid)
+        
+        # Filter query by these IDs
+        # Note: If no linked images, we force an empty match using a non-existent ID or empty list
+        linked_oids = [ObjectId(id) for id in linked_ids if ObjectId.is_valid(id)]
+        if not linked_oids:
+             # Force empty result
+             query["_id"] = {"$in": []}
+        else:
+            # Intersect with existing _id filter if any (unlikely unless searched by ID?)
+            # But we must be careful not to overwrite if logic uses _id
+            query.setdefault("_id", {})["$in"] = linked_oids
     
     # Get total count before pagination
     total_count = images_col.count_documents(query)

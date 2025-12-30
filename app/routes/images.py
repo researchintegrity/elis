@@ -239,6 +239,7 @@ async def list_images(
     date_to: str = Query(None, description="Filter images until this date (ISO format YYYY-MM-DD)"),
     search: str = Query(None, description="Search in filename (case-insensitive)"),
     flagged: Optional[bool] = Query(None, description="Filter by flagged status - True for flagged images only"),
+    linked_to_image_id: Optional[str] = Query(None, description="Filter images linked to this image ID via dual annotations"),
     include_annotated: bool = Query(False, description="If true with flagged=true, also include images with annotations"),
     page: Optional[int] = Query(None, ge=1, description="Page number (1-indexed). If provided, returns paginated response."),
     per_page: int = Query(24, ge=1, le=100, description="Number of items per page (1-100, default 24)"),
@@ -261,6 +262,8 @@ async def list_images(
         date_from: Optional ISO date string for start of date range
         date_to: Optional ISO date string for end of date range
         search: Optional search string for filename
+        flagged: Optional filter by flagged status
+        linked_to_image_id: Optional filter for images linked to this ID via dual annotations
         page: Page number (1-indexed). Enables paginated response mode.
         per_page: Number of items per page (default: 24, max: 100)
         limit: DEPRECATED - Maximum number of images to return
@@ -298,6 +301,7 @@ async def list_images(
             date_to=date_to,
             search=search,
             flagged=flagged,
+            linked_to_image_id=linked_to_image_id,
             include_annotated=include_annotated,
             limit=actual_limit,
             offset=actual_offset
