@@ -623,6 +623,23 @@ class DualAnnotationBatchCreate(BaseModel):
         }
 
 
+class DualAnnotationUpdate(BaseModel):
+    """Dual-image annotation update request - partial update"""
+    coords: Optional[CoordinateInfo] = Field(None, description="Updated annotation coordinates")
+    pair_name: Optional[str] = Field(None, description="Updated pair name")
+    pair_color: Optional[str] = Field(None, description="Updated pair color hex code")
+    text: Optional[str] = Field(None, max_length=1000, description="Updated annotation text")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "coords": {"x": 30.0, "y": 35.0, "width": 12.0, "height": 18.0},
+                "pair_name": "Renamed Pair",
+                "pair_color": "#3B82F6"
+            }
+        }
+
+
 # ============================================================================
 # Watermark Removal Schemas
 # ============================================================================

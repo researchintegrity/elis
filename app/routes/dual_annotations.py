@@ -10,7 +10,8 @@ from datetime import datetime
 from app.schemas import (
     DualAnnotationCreate, 
     DualAnnotationResponse, 
-    DualAnnotationBatchCreate
+    DualAnnotationBatchCreate,
+    DualAnnotationUpdate
 )
 from app.db.mongodb import get_dual_annotations_collection, get_images_collection
 from app.utils.security import get_current_user
@@ -289,6 +290,56 @@ async def delete_dual_annotation(
     })
 
 
+@router.put("/{annotation_id}", response_model=DualAnnotationResponse)
+async def update_dual_annotation(
+    annotation_id: str,
+    update_data: DualAnnotationUpdate,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Update an existing dual-image annotation.
+    Supports partial updates for coords, pair_name, pair_color, and text.
+    """
+    user_id_str = str(current_user["_id"])
+    
+    # Verify annotation exists and belongs to user
+    existing = await get_owned_resource(
+        get_dual_annotations_collection,
+        annotation_id,
+        user_id_str,
+        "Dual Annotation"
+    )
+    
+    # Build update document with only provided fields
+    update_fields = {}
+    if update_data.coords is not None:
+        update_fields["coords"] = update_data.coords.dict(exclude_none=True)
+    if update_data.pair_name is not None:
+        update_fields["pair_name"] = update_data.pair_name
+    if update_data.pair_color is not None:
+        update_fields["pair_color"] = update_data.pair_color
+    if update_data.text is not None:
+        update_fields["text"] = update_data.text
+    
+    if not update_fields:
+        # No fields to update, return existing
+        existing["_id"] = str(existing["_id"])
+        return DualAnnotationResponse(**existing)
+    
+    update_fields["updated_at"] = datetime.utcnow()
+    
+    annotations_col = get_dual_annotations_collection()
+    annotations_col.update_one(
+        {"_id": ObjectId(annotation_id), "user_id": user_id_str},
+        {"$set": update_fields}
+    )
+    
+    # Return updated annotation
+    updated = annotations_col.find_one({"_id": ObjectId(annotation_id)})
+    updated["_id"] = str(updated["_id"])
+    return DualAnnotationResponse(**updated)
+
+
 @router.delete("/by-link/{link_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_dual_annotations_by_link(
     link_id: str,
@@ -311,3 +362,49 @@ async def delete_dual_annotations_by_link(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"No annotations found with link_id: {link_id}"
         )
+
+
+@router.put("/by-link/{link_id}")
+async def update_dual_annotations_by_link(
+    link_id: str,
+    update_data: DualAnnotationUpdate,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Update all dual-image annotations with a specific link_id.
+    Useful for updating pair name/color across all linked annotations.
+    Returns the count of updated annotations.
+    """
+    user_id_str = str(current_user["_id"])
+    annotations_col = get_dual_annotations_collection()
+    
+    # Build update document with only provided fields
+    update_fields = {}
+    if update_data.pair_name is not None:
+        update_fields["pair_name"] = update_data.pair_name
+    if update_data.pair_color is not None:
+        update_fields["pair_color"] = update_data.pair_color
+    if update_data.text is not None:
+        update_fields["text"] = update_data.text
+    # Note: coords is NOT updated here as each annotation has different coords
+    
+    if not update_fields:
+        return {"updated_count": 0, "message": "No fields to update"}
+    
+    update_fields["updated_at"] = datetime.utcnow()
+    
+    result = annotations_col.update_many(
+        {"link_id": link_id, "user_id": user_id_str},
+        {"$set": update_fields}
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No annotations found with link_id: {link_id}"
+        )
+    
+    return {
+        "updated_count": result.modified_count,
+        "message": f"Updated {result.modified_count} annotations"
+    }
