@@ -5,8 +5,9 @@ Provides high-level operations for Content-Based Image Retrieval,
 including indexing images from the database and searching.
 """
 import logging
-from typing import List, Dict, Optional, Tuple
-from datetime import datetime
+from datetime import datetime, timezone
+from typing import Dict, List, Optional, Tuple
+
 from bson import ObjectId
 
 from app.db.mongodb import get_images_collection
@@ -209,5 +210,5 @@ def get_cbir_status() -> Dict:
         "service": "cbir",
         "healthy": healthy,
         "message": message,
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat()
     }

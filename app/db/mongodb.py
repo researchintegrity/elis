@@ -1,12 +1,16 @@
 """
 MongoDB database connection and configuration
 """
-from pymongo import MongoClient
-from fastapi import HTTPException, status
+import logging
 import os
+
 from dotenv import load_dotenv
+from fastapi import HTTPException, status
+from pymongo import MongoClient
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 # These are read dynamically so test fixtures can override them
 def get_mongodb_url():
@@ -27,27 +31,27 @@ class MongoDBConnection:
             cls._instance = super().__new__(cls)
         return cls._instance
 
-    def connect(self):
-        """Connect to MongoDB"""
+    def connect(self) -> None:
+        """Connect to MongoDB."""
         try:
             mongodb_url = get_mongodb_url()
             database_name = get_database_name()
             self._client = MongoClient(mongodb_url, serverSelectionTimeoutMS=5000)
             self._client.admin.command('ping')
             self._db = self._client[database_name]
-            print(f"✅ Connected to MongoDB: {database_name}")
+            logger.info("Connected to MongoDB: %s", database_name)
         except Exception as e:
-            print(f"❌ MongoDB connection failed: {str(e)}")
+            logger.error("MongoDB connection failed: %s", str(e))
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail=f"MongoDB connection failed: {str(e)}"
             )
 
-    def disconnect(self):
-        """Disconnect from MongoDB"""
+    def disconnect(self) -> None:
+        """Disconnect from MongoDB."""
         if self._client:
             self._client.close()
-            print("✅ Disconnected from MongoDB")
+            logger.info("Disconnected from MongoDB")
 
     def get_database(self):
         """Get database instance"""

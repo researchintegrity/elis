@@ -1,14 +1,20 @@
 """
 Security utilities for authentication and password handling
 """
-from passlib.context import CryptContext
+import os
+import random
+import secrets
+import string
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+
 import jwt
-import os
 from dotenv import load_dotenv
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Query, status
 from fastapi.security import OAuth2PasswordBearer
+from passlib.context import CryptContext
+
+from app.config.settings import BCRYPT_ROUNDS
 from app.db.mongodb import get_users_collection
 
 load_dotenv()
@@ -19,7 +25,7 @@ JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_HOURS = int(os.getenv("JWT_EXPIRATION_HOURS", 24))
 
 # Password hashing context
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=12)
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=BCRYPT_ROUNDS)
 
 # OAuth2 scheme
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
@@ -77,9 +83,7 @@ def create_access_token(
     return encoded_jwt
 
 
-from fastapi import Query
-
-# Update OAuth2 scheme to not auto-error, allowing manual handling
+# OAuth2 scheme with manual error handling for query string tokens
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login", auto_error=False)
 
 async def get_current_user(
@@ -176,16 +180,19 @@ async def get_current_admin_user(current_user: dict = Depends(get_current_active
 
 def generate_secure_password(length: int = 16) -> str:
     """
-    Generate a secure random password
+    Generate a secure random password.
     
     Args:
-        length: Length of the password to generate
+        length: Length of the password to generate.
         
     Returns:
-        Secure random password string
+        Secure random password string.
+        
+    Raises:
+        ValueError: If length is less than 4.
     """
-    import secrets
-    import string
+    if length < 4:
+        raise ValueError("Password length must be at least 4 characters")
     
     # Ensure we have at least one of each required character type
     alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
@@ -202,7 +209,6 @@ def generate_secure_password(length: int = 16) -> str:
     password.extend(secrets.choice(alphabet) for _ in range(length - 4))
     
     # Shuffle to randomize position of required characters
-    import random
     random.shuffle(password)
     
     return ''.join(password)

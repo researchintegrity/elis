@@ -1,12 +1,12 @@
 """
 File storage utilities for document and image upload handling
 """
+import logging
 import random
 import shutil
-import logging
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Tuple, Optional
-from datetime import datetime
+from typing import List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -546,7 +546,7 @@ def update_user_storage_in_db(user_id: str) -> int:
             {
                 "$set": {
                     "storage_used_bytes": current_usage,
-                    "updated_at": __import__('datetime').datetime.utcnow()
+                    "updated_at": datetime.now(timezone.utc)
                 }
             }
         )

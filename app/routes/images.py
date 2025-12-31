@@ -1,48 +1,58 @@
 """
 Image upload routes for extracted and user-uploaded image management
 """
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, status, Query
-from fastapi.responses import FileResponse
-from typing import List, Union, Optional
-from bson import ObjectId
+import io
+import logging
+import math
 from datetime import datetime
 from pathlib import Path
-import math
+from typing import List, Optional, Union
 
+from bson import ObjectId
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi.responses import FileResponse
+from PIL import Image, ImageOps
+
+from app.celery_config import celery_app
+from app.config.settings import (
+    DEFAULT_THUMBNAIL_SIZE,
+    THUMBNAIL_JPEG_QUALITY,
+    convert_host_path_to_container,
+)
+from app.config.storage_quota import DEFAULT_USER_STORAGE_QUOTA
+from app.db.mongodb import get_documents_collection, get_images_collection
 from app.schemas import (
     ImageResponse,
     ImageTypesUpdateRequest,
     PaginatedImageResponse,
-)
-from app.db.mongodb import get_images_collection, get_documents_collection
-from app.utils.security import get_current_user
-from app.utils.file_storage import (
-    validate_image,
-    save_image_file,
-    check_storage_quota,
-    update_user_storage_in_db,
-    get_thumbnail_path
-)
-from PIL import Image, ImageOps
-import io
-from app.utils.metadata_parser import extract_exif_metadata
-from app.config.storage_quota import DEFAULT_USER_STORAGE_QUOTA
-from app.config.settings import convert_host_path_to_container
-from app.services.image_service import delete_image_and_artifacts, list_images as list_images_service
-from app.services.resource_helpers import get_owned_resource
-from app.services.quota_helpers import augment_with_quota
-from app.schemas import (
-    PanelExtractionRequest,
     PanelExtractionInitiationResponse,
-    PanelExtractionStatusResponse
+    PanelExtractionRequest,
+    PanelExtractionStatusResponse,
+)
+from app.services.image_service import (
+    delete_image_and_artifacts,
+    list_images as list_images_service,
 )
 from app.services.panel_extraction_service import (
-    initiate_panel_extraction,
     get_panel_extraction_status,
-    get_panels_by_source_image
+    get_panels_by_source_image,
+    initiate_panel_extraction,
 )
-from app.tasks.copy_move_detection import detect_copy_move
+from app.services.quota_helpers import augment_with_quota
+from app.services.resource_helpers import get_owned_resource
 from app.tasks.cbir import cbir_index_image, cbir_update_labels
+from app.tasks.copy_move_detection import detect_copy_move
+from app.utils.file_storage import (
+    check_storage_quota,
+    get_thumbnail_path,
+    save_image_file,
+    update_user_storage_in_db,
+    validate_image,
+)
+from app.utils.metadata_parser import extract_exif_metadata
+from app.utils.security import get_current_user
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/images", tags=["images"])
 
@@ -562,16 +572,15 @@ async def get_image_thumbnail(
                 if image.mode in ('RGBA', 'P'):
                     image = image.convert('RGB')
                 
-                # Resize keeping aspect ratio (max 300x300)
-                image.thumbnail((300, 300), Image.Resampling.LANCZOS)
+                # Resize keeping aspect ratio using configured thumbnail size
+                image.thumbnail(DEFAULT_THUMBNAIL_SIZE, Image.Resampling.LANCZOS)
                 
-                # Save as JPEG
-                image.save(thumb_path, "JPEG", quality=85)
+                # Save as JPEG with configured quality
+                image.save(thumb_path, "JPEG", quality=THUMBNAIL_JPEG_QUALITY)
                 
         except Exception as e:
             # If thumbnail generation fails, fallback to original (pass-through)
-            # Log error ideally
-            print(f"Thumbnail generation failed: {e}") 
+            logger.warning("Thumbnail generation failed for image %s: %s", image_id, e)
             # Fallback to download_image logic
             return await download_image(image_id, current_user)
 

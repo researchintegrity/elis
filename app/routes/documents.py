@@ -1,44 +1,44 @@
 """
 Document upload routes for PDF file management
 """
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, status
-from fastapi.responses import FileResponse
-from typing import List
-from bson import ObjectId
+import logging
 from datetime import datetime
 from pathlib import Path
+from typing import List
+
+from bson import ObjectId
+from celery.result import AsyncResult
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse
 import logging
 
-logger = logging.getLogger(__name__)
-
+from app.celery_config import celery_app
+from app.config.settings import convert_host_path_to_container
+from app.config.storage_quota import DEFAULT_USER_STORAGE_QUOTA
+from app.db.mongodb import get_documents_collection, get_images_collection
 from app.schemas import (
     DocumentResponse,
     ImageResponse,
-    WatermarkRemovalRequest,
     WatermarkRemovalInitiationResponse,
-    WatermarkRemovalStatusResponse
+    WatermarkRemovalRequest,
+    WatermarkRemovalStatusResponse,
 )
-from app.db.mongodb import get_documents_collection, get_images_collection
-from app.utils.security import get_current_user
-from app.utils.file_storage import (
-    validate_pdf,
-    save_pdf_file,
-    get_extraction_output_path,
-    check_storage_quota,
-    update_user_storage_in_db
-)
-from app.config.storage_quota import DEFAULT_USER_STORAGE_QUOTA
-from app.config.settings import convert_host_path_to_container
-from app.tasks.image_extraction import extract_images_from_document
-from app.services.watermark_removal_service import (
-    initiate_watermark_removal,
-    get_watermark_removal_status
-)
-from celery.result import AsyncResult
-from app.celery_config import celery_app
 from app.services.document_service import delete_document_and_artifacts
-from app.services.resource_helpers import get_owned_resource
 from app.services.quota_helpers import augment_with_quota
+from app.services.resource_helpers import get_owned_resource
+from app.services.watermark_removal_service import (
+    get_watermark_removal_status,
+    initiate_watermark_removal,
+)
+from app.tasks.image_extraction import extract_images_from_document
+from app.utils.file_storage import (
+    check_storage_quota,
+    get_extraction_output_path,
+    save_pdf_file,
+    update_user_storage_in_db,
+    validate_pdf,
+)
+from app.utils.security import get_current_user
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -268,12 +268,11 @@ async def get_document(
     doc = augment_with_quota(doc, user_id_str, user_quota)
     
     # Return raw dict (convert ObjectId and datetime for JSON serialization)
-    from datetime import datetime as dt
     result = {}
     for key, value in doc.items():
         if isinstance(value, ObjectId):
             result[key] = str(value)
-        elif isinstance(value, dt):
+        elif isinstance(value, datetime):
             result[key] = value.isoformat()
         else:
             result[key] = value
