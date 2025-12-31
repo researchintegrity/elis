@@ -1,45 +1,56 @@
 """
 Image upload routes for extracted and user-uploaded image management
 """
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, status, Query
-from fastapi.responses import FileResponse
-from typing import List, Union, Optional
-from bson import ObjectId
+import logging
+import math
 from datetime import datetime
 from pathlib import Path
-import math
+from typing import List, Optional, Union
 
+from bson import ObjectId
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi.responses import FileResponse
+from PIL import Image
+
+from app.celery_config import celery_app
+from app.config.settings import (
+    DEFAULT_THUMBNAIL_SIZE,
+    THUMBNAIL_JPEG_QUALITY,
+    convert_host_path_to_container,
+)
+from app.config.storage_quota import DEFAULT_USER_STORAGE_QUOTA
+from app.db.mongodb import get_documents_collection, get_images_collection
 from app.schemas import (
     ImageResponse,
     ImageTypesUpdateRequest,
     PaginatedImageResponse,
-)
-from app.db.mongodb import get_images_collection, get_documents_collection
-from app.utils.security import get_current_user
-from app.utils.file_storage import (
-    validate_image,
-    save_image_file,
-    check_storage_quota,
-    update_user_storage_in_db
-)
-from app.utils.metadata_parser import extract_exif_metadata
-from app.config.storage_quota import DEFAULT_USER_STORAGE_QUOTA
-from app.config.settings import convert_host_path_to_container
-from app.services.image_service import delete_image_and_artifacts, list_images as list_images_service
-from app.services.resource_helpers import get_owned_resource
-from app.services.quota_helpers import augment_with_quota
-from app.schemas import (
-    PanelExtractionRequest,
     PanelExtractionInitiationResponse,
-    PanelExtractionStatusResponse
+    PanelExtractionRequest,
+    PanelExtractionStatusResponse,
+)
+from app.services.image_service import (
+    delete_image_and_artifacts,
+    list_images as list_images_service,
 )
 from app.services.panel_extraction_service import (
-    initiate_panel_extraction,
     get_panel_extraction_status,
-    get_panels_by_source_image
+    get_panels_by_source_image,
+    initiate_panel_extraction,
 )
-from app.tasks.copy_move_detection import detect_copy_move
+from app.services.quota_helpers import augment_with_quota
+from app.services.resource_helpers import get_owned_resource
 from app.tasks.cbir import cbir_index_image, cbir_update_labels
+from app.utils.file_storage import (
+    check_storage_quota,
+    get_thumbnail_path,
+    save_image_file,
+    update_user_storage_in_db,
+    validate_image,
+)
+from app.utils.metadata_parser import extract_exif_metadata
+from app.utils.security import get_current_user
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/images", tags=["images"])
 
@@ -235,6 +246,9 @@ async def list_images(
     date_from: str = Query(None, description="Filter images from this date (ISO format YYYY-MM-DD)"),
     date_to: str = Query(None, description="Filter images until this date (ISO format YYYY-MM-DD)"),
     search: str = Query(None, description="Search in filename (case-insensitive)"),
+    flagged: Optional[bool] = Query(None, description="Filter by flagged status - True for flagged images only"),
+    linked_to_image_id: Optional[str] = Query(None, description="Filter images linked to this image ID via dual annotations"),
+    include_annotated: bool = Query(False, description="If true with flagged=true, also include images with annotations"),
     page: Optional[int] = Query(None, ge=1, description="Page number (1-indexed). If provided, returns paginated response."),
     per_page: int = Query(24, ge=1, le=100, description="Number of items per page (1-100, default 24)"),
     limit: int = Query(50, description="DEPRECATED: Use per_page instead. Maximum number of images to return"),
@@ -256,6 +270,8 @@ async def list_images(
         date_from: Optional ISO date string for start of date range
         date_to: Optional ISO date string for end of date range
         search: Optional search string for filename
+        flagged: Optional filter by flagged status
+        linked_to_image_id: Optional filter for images linked to this ID via dual annotations
         page: Page number (1-indexed). Enables paginated response mode.
         per_page: Number of items per page (default: 24, max: 100)
         limit: DEPRECATED - Maximum number of images to return
@@ -292,6 +308,9 @@ async def list_images(
             date_from=date_from,
             date_to=date_to,
             search=search,
+            flagged=flagged,
+            linked_to_image_id=linked_to_image_id,
+            include_annotated=include_annotated,
             limit=actual_limit,
             offset=actual_offset
         )
@@ -326,6 +345,96 @@ async def list_images(
             detail=str(e)
         )
 
+
+@router.get("/tags", response_model=List[str])
+async def get_all_tags(
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get all unique image tags/categories for the current user.
+    
+    Uses MongoDB's distinct() for efficient retrieval without loading image data.
+    This is much more efficient than fetching images and extracting tags client-side.
+    
+    Returns:
+        List of unique tag strings, sorted alphabetically
+    """
+    user_id_str = str(current_user["_id"])
+    images_col = get_images_collection()
+    
+    # Use MongoDB distinct() for efficient unique value retrieval
+    # This queries the database index directly without loading documents
+    tags = images_col.distinct("image_type", {"user_id": user_id_str})
+    
+    # Filter out None/empty values and sort
+    unique_tags = sorted([tag for tag in tags if tag])
+    
+    return unique_tags
+
+
+@router.get("/ids", response_model=dict)
+async def get_all_image_ids(
+    image_type: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    search: Optional[str] = None,
+    source_type: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get all image IDs for the current user in a single request.
+    
+    This is optimized for "Select All" operations where only IDs are needed.
+    Returns a lightweight response with just IDs instead of full image objects.
+    
+    Supports the same filters as the main /images endpoint.
+    
+    Returns:
+        {"ids": ["id1", "id2", ...], "count": N}
+    """
+    user_id_str = str(current_user["_id"])
+    images_col = get_images_collection()
+    
+    # Build query with same logic as list_images
+    query = {"user_id": user_id_str}
+    
+    # Apply filters
+    if image_type:
+        tags = [t.strip() for t in image_type.split(",") if t.strip()]
+        if tags:
+            query["image_type"] = {"$in": tags}
+    
+    if source_type and source_type != "all":
+        query["source_type"] = source_type
+    
+    if date_from:
+        try:
+            from datetime import datetime
+            dt = datetime.fromisoformat(date_from.replace('Z', '+00:00'))
+            query.setdefault("created_at", {})["$gte"] = dt
+        except ValueError:
+            pass
+    
+    if date_to:
+        try:
+            from datetime import datetime
+            dt = datetime.fromisoformat(date_to.replace('Z', '+00:00'))
+            query.setdefault("created_at", {})["$lte"] = dt
+        except ValueError:
+            pass
+    
+    if search:
+        search_regex = {"$regex": search, "$options": "i"}
+        query["$or"] = [
+            {"filename": search_regex},
+            {"original_filename": search_regex}
+        ]
+    
+    # Only fetch _id field for efficiency
+    cursor = images_col.find(query, {"_id": 1})
+    ids = [str(doc["_id"]) for doc in cursor]
+    
+    return {"ids": ids, "count": len(ids)}
 
 @router.get("/{image_id}", response_model=ImageResponse)
 async def get_image(
@@ -413,6 +522,133 @@ async def download_image(
     )
 
 
+@router.get("/{image_id}/thumbnail")
+async def get_image_thumbnail(
+    image_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get a thumbnail version of an image
+    
+    - Checks if thumbnail exists on disk
+    - If not, generates it from original image
+    - Returns cached thumbnail
+    
+    Args:
+        image_id: Image ID
+        current_user: Current authenticated user
+        
+    Returns:
+        FileResponse with thumbnail image
+    """
+    user_id_str = str(current_user["_id"])
+    
+    # Verify image belongs to user
+    img = await get_owned_resource(
+        get_images_collection,
+        image_id,
+        user_id_str,
+        "Image"
+    )
+    
+    # Check if thumbnail already exists
+    thumb_path = get_thumbnail_path(user_id_str, image_id)
+    
+    if not thumb_path.exists():
+        # Generate thumbnail
+        file_path = img["file_path"]
+        if not Path(file_path).exists():
+             raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Original file not found"
+            )
+            
+        try:
+            # Open original image
+            with Image.open(file_path) as image:
+                # Convert to RGB if necessary (e.g. for RGBA/P PNGs saved as JPG)
+                if image.mode in ('RGBA', 'P'):
+                    image = image.convert('RGB')
+                
+                # Resize keeping aspect ratio using configured thumbnail size
+                image.thumbnail(DEFAULT_THUMBNAIL_SIZE, Image.Resampling.LANCZOS)
+                
+                # Save as JPEG with configured quality
+                image.save(thumb_path, "JPEG", quality=THUMBNAIL_JPEG_QUALITY)
+                
+        except Exception as e:
+            # If thumbnail generation fails, fallback to original (pass-through)
+            logger.warning("Thumbnail generation failed for image %s: %s", image_id, e)
+            # Fallback to download_image logic
+            return await download_image(image_id, current_user)
+
+    # Return thumbnail
+    return FileResponse(
+        path=thumb_path,
+        filename=f"thumb_{img['filename']}",
+        media_type="image/jpeg"
+    )
+
+
+@router.patch("/{image_id}/flag", response_model=ImageResponse)
+async def toggle_image_flag(
+    image_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Toggle the flagged status of an image.
+    
+    Flagged images are marked as suspicious for later review.
+    
+    Args:
+        image_id: Image ID to toggle flag status
+        current_user: Current authenticated user
+        
+    Returns:
+        Updated ImageResponse with new is_flagged value
+    """
+    user_id_str = str(current_user["_id"])
+    user_quota = current_user.get("storage_limit_bytes", DEFAULT_USER_STORAGE_QUOTA)
+    
+    try:
+        img_oid = ObjectId(image_id)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid image ID format"
+        )
+    
+    images_col = get_images_collection()
+    
+    # Find the image
+    img = images_col.find_one({
+        "_id": img_oid,
+        "user_id": user_id_str
+    })
+    
+    if not img:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Image not found"
+        )
+    
+    # Toggle the flag
+    new_flag_status = not img.get("is_flagged", False)
+    
+    # Update in database
+    images_col.update_one(
+        {"_id": img_oid},
+        {"$set": {"is_flagged": new_flag_status}}
+    )
+    
+    # Get updated image
+    img = images_col.find_one({"_id": img_oid})
+    img["_id"] = str(img["_id"])
+    img = augment_with_quota(img, user_id_str, user_quota)
+    
+    return ImageResponse(**img)
+
+
 @router.delete("/{image_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_image(
     image_id: str,
@@ -425,38 +661,10 @@ async def delete_image(
         image_id: Image ID
         current_user: Current authenticated user
     """
-    try:
-        await delete_image_and_artifacts(
-            image_id=image_id,
-            user_id=str(current_user["_id"])
-        )
-    except ValueError as e:
-        error_msg = str(e)
-        if "Invalid image ID" in error_msg:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=error_msg
-            )
-        elif "not found" in error_msg:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=error_msg
-            )
-        elif "Cannot delete" in error_msg:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=error_msg
-            )
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=str(e)
-            )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete image: {str(e)}"
-        )
+    await delete_image_and_artifacts(
+        image_id=image_id,
+        user_id=str(current_user["_id"])
+    )
 
 
 # ============================================================================

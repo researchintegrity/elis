@@ -5,8 +5,9 @@ Provides high-level operations for Content-Based Image Retrieval,
 including indexing images from the database and searching.
 """
 import logging
-from typing import List, Dict, Optional, Tuple
-from datetime import datetime
+from datetime import datetime, timezone
+from typing import Dict, List, Optional, Tuple
+
 from bson import ObjectId
 
 from app.db.mongodb import get_images_collection
@@ -174,7 +175,7 @@ def enrich_search_results(
         enriched_result = {
             "cbir_id": result.get("id"),
             "distance": raw_distance,
-            "similarity_score": similarity,
+            "similarity_score": round(similarity, 4),
             "cbir_labels": result.get("labels", []),
             "image_path": path,
         }
@@ -188,6 +189,7 @@ def enrich_search_results(
                 "document_id": image.get("document_id"),
                 "image_type": image.get("image_type", []),
                 "uploaded_date": image.get("uploaded_date"),
+                "is_flagged": image.get("is_flagged", False),
             })
         
         enriched.append(enriched_result)
@@ -208,5 +210,5 @@ def get_cbir_status() -> Dict:
         "service": "cbir",
         "healthy": healthy,
         "message": message,
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat()
     }

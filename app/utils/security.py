@@ -1,14 +1,20 @@
 """
 Security utilities for authentication and password handling
 """
-from passlib.context import CryptContext
+import os
+import random
+import secrets
+import string
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+
 import jwt
-import os
 from dotenv import load_dotenv
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Query, status
 from fastapi.security import OAuth2PasswordBearer
+from passlib.context import CryptContext
+
+from app.config.settings import BCRYPT_ROUNDS
 from app.db.mongodb import get_users_collection
 
 load_dotenv()
@@ -19,7 +25,7 @@ JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_HOURS = int(os.getenv("JWT_EXPIRATION_HOURS", 24))
 
 # Password hashing context
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=12)
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=BCRYPT_ROUNDS)
 
 # OAuth2 scheme
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
@@ -77,12 +83,19 @@ def create_access_token(
     return encoded_jwt
 
 
-async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
+# OAuth2 scheme with manual error handling for query string tokens
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login", auto_error=False)
+
+async def get_current_user(
+    token: Optional[str] = Depends(oauth2_scheme),
+    token_query: Optional[str] = Query(None, alias="token")
+) -> dict:
     """
-    Get current authenticated user from JWT token
+    Get current authenticated user from JWT token (Head or Query)
     
     Args:
-        token: JWT token from Authorization header
+        token: JWT token from Authorization header or Query
+        token_query: JWT token from query string (alias='token')
         
     Returns:
         User document from database
@@ -96,8 +109,14 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
         headers={"WWW-Authenticate": "Bearer"},
     )
     
+    # Priority: Header > Query
+    effective_token = token or token_query
+    
+    if not effective_token:
+        raise credentials_exception
+    
     try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        payload = jwt.decode(effective_token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
         username: str = payload.get("sub")
         if username is None:
             raise credentials_exception
@@ -133,3 +152,63 @@ async def get_current_active_user(current_user: dict = Depends(get_current_user)
         )
     
     return current_user
+
+
+async def get_current_admin_user(current_user: dict = Depends(get_current_active_user)) -> dict:
+    """
+    Get current admin user (checks if user has admin role)
+    
+    Args:
+        current_user: Current active user from token
+        
+    Returns:
+        Admin user document
+        
+    Raises:
+        HTTPException: If user is not an admin
+    """
+    user_roles = current_user.get("roles", ["user"])
+    
+    if "admin" not in user_roles:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin privileges required"
+        )
+    
+    return current_user
+
+
+def generate_secure_password(length: int = 16) -> str:
+    """
+    Generate a secure random password.
+    
+    Args:
+        length: Length of the password to generate.
+        
+    Returns:
+        Secure random password string.
+        
+    Raises:
+        ValueError: If length is less than 4.
+    """
+    if length < 4:
+        raise ValueError("Password length must be at least 4 characters")
+    
+    # Ensure we have at least one of each required character type
+    alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
+    
+    # Generate password with at least one lowercase, uppercase, digit, and special char
+    password = [
+        secrets.choice(string.ascii_lowercase),
+        secrets.choice(string.ascii_uppercase),
+        secrets.choice(string.digits),
+        secrets.choice("!@#$%^&*"),
+    ]
+    
+    # Fill the rest with random characters
+    password.extend(secrets.choice(alphabet) for _ in range(length - 4))
+    
+    # Shuffle to randomize position of required characters
+    random.shuffle(password)
+    
+    return ''.join(password)

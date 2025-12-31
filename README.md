@@ -100,6 +100,7 @@ git clone https://github.com/researchintegrity/panel-extractor.git
 git clone https://github.com/researchintegrity/pdf-image-extraction.git
 git clone https://github.com/researchintegrity/provenance-analysis.git
 git clone https://github.com/researchintegrity/TruFor.git
+git clone https://github.com/researchintegrity/copy-move-detection-keypoint.git
 ```
 
 Note: The system is designed to work with pre-built Docker images for production use. Cloning modules is only necessary for development or custom builds.

@@ -13,6 +13,7 @@ To customize settings:
 
 import os
 from pathlib import Path
+from typing import Union
 
 # ============================================================================
 # FILE STORAGE SETTINGS
@@ -167,12 +168,23 @@ PASSWORD_MIN_LENGTH = 4
 FULL_NAME_MAX_LENGTH = 100
 
 # ============================================================================
+# IMAGE PROCESSING SETTINGS
+# ============================================================================
+
+# Thumbnail generation settings
+DEFAULT_THUMBNAIL_SIZE = (300, 300)  # Max width x height in pixels
+THUMBNAIL_JPEG_QUALITY = 85  # JPEG quality (1-100)
+
+# Password hashing settings
+BCRYPT_ROUNDS = 12  # bcrypt cost factor
+
+# ============================================================================
 # UTILITY FUNCTIONS
 # ============================================================================
 
 def get_extraction_path_template() -> str:
     """
-    Get the path template for extracted images
+    Get the path template for extracted images.
     
     Returns:
         Template string: {user_id}/images/extracted/{doc_id}/{filename}
@@ -180,65 +192,68 @@ def get_extraction_path_template() -> str:
     return f"{{user_id}}/{EXTRACTION_SUBDIRECTORY}/{{doc_id}}/{{filename}}"
 
 
-def get_container_path_prefix() -> str:
+def get_container_path_prefix() -> Path:
     """
-    Get the prefix used for container paths (for path detection)
+    Get the prefix used for container paths (for path detection).
     
     Returns:
-        Container path prefix: /workspace
+        Container path prefix as Path object.
     """
     return CONTAINER_WORKSPACE_PATH
 
 
-def is_container_path(path: Path) -> bool:
+def is_container_path(path: Union[str, Path]) -> bool:
     """
-    Check if a path is running inside a container
+    Check if a path is running inside a container.
     
     Args:
-        path: File path to check
+        path: File path to check.
         
     Returns:
-        True if path starts with container prefix, False otherwise
+        True if path starts with container prefix, False otherwise.
     """
     return Path(path).is_relative_to(CONTAINER_WORKSPACE_PATH)
 
-def convert_container_path_to_host(container_path: Path) -> Path:
+def convert_container_path_to_host(container_path: Union[str, Path]) -> Path:
     """
     Convert a container path to a relative workspace path.
     
     Args:
-        container_path: Path inside container (starts with /workspace)
+        container_path: Path inside container (starts with /workspace).
         
     Returns:
-        Relative path from workspace root (without HOST_WORKSPACE_PATH prefix)
+        Relative path from workspace root (without HOST_WORKSPACE_PATH prefix).
         
+    Raises:
+        ValueError: If path is not under container workspace path.
     """
-    # if container is not Path convert to Path
     container_path = Path(container_path) if not isinstance(container_path, Path) else container_path
     if is_container_path(container_path):
-        # Remove container workspace prefix, leaving just the relative path
         try:
             rel_path = container_path.relative_to(CONTAINER_WORKSPACE_PATH)
         except ValueError:
-            raise ValueError(f"Path {container_path} is not under container workspace path {CONTAINER_WORKSPACE_PATH}")
-        
-        # Add host workspace prefix back to create workspace-relative path
+            raise ValueError(
+                f"Path {container_path} is not under container workspace path {CONTAINER_WORKSPACE_PATH}"
+            )
         return HOST_WORKSPACE_PATH / rel_path
     return container_path
 
-def convert_host_path_to_container(path: Path) -> Path:
+def convert_host_path_to_container(path: Union[str, Path]) -> Path:
     """
     Ensure a path is in container format.
     
     Args:
-        path: Path to ensure is in container format
+        path: Path to ensure is in container format.
+        
     Returns:
-        Path in container format
+        Path in container format.
+        
+    Raises:
+        ValueError: If path is not under host workspace path.
     """
     path = Path(path) if not isinstance(path, Path) else path
     if is_container_path(path):
         return path
-    # Convert host path to container path
     try:
         rel_path = path.relative_to(HOST_WORKSPACE_PATH)
     except ValueError:

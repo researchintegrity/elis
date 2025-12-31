@@ -90,7 +90,7 @@ def test_provenance_task_execution(mock_analyses_collection, mock_analyze_proven
         
         # Verify
         assert result["status"] == "completed"
-        assert result["result"] == {"graph": "data"}
+        assert result["result"]["graph"] == "data"
         
         # Verify DB updates
         assert mock_analyses_collection.update_one.call_count == 2

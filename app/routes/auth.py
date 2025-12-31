@@ -1,19 +1,21 @@
 """
 Authentication routes for user registration and login
 """
-from fastapi import APIRouter, HTTPException, status, Depends
+from datetime import datetime, timedelta, timezone
+
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
-from datetime import timedelta
 from pymongo.errors import DuplicateKeyError
 
-from app.schemas import UserRegister, UserLogin, TokenResponse, UserResponse
+from app.config.storage_quota import DEFAULT_USER_STORAGE_QUOTA
+from app.db.mongodb import get_users_collection
+from app.schemas import TokenResponse, UserRegister, UserResponse
 from app.utils.security import (
+    JWT_EXPIRATION_HOURS,
+    create_access_token,
     hash_password,
     verify_password,
-    create_access_token,
-    JWT_EXPIRATION_HOURS
 )
-from app.db.mongodb import get_users_collection
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -42,15 +44,19 @@ async def register(user_data: UserRegister) -> dict:
         )
     
     # Create new user document
+    now = datetime.now(timezone.utc)
     user_doc = {
         "username": user_data.username,
         "email": user_data.email,
         "hashed_password": hash_password(user_data.password),
         "full_name": user_data.full_name,
         "is_active": True,
+        "roles": ["user"],  # Default role for new users
         "storage_used_bytes": 0,  # Initialize storage usage tracking
-        "created_at": __import__('datetime').datetime.utcnow(),
-        "updated_at": __import__('datetime').datetime.utcnow()
+        "storage_limit_bytes": DEFAULT_USER_STORAGE_QUOTA,
+        "created_at": now,
+        "updated_at": now,
+        "last_login_at": None
     }
     
     try:
@@ -105,6 +111,18 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()) -> dict:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is disabled"
         )
+    
+    # Update last_login_at timestamp
+    now = datetime.now(timezone.utc)
+    collection.update_one(
+        {"_id": user["_id"]},
+        {"$set": {"last_login_at": now}}
+    )
+    user["last_login_at"] = now
+    
+    # Ensure roles field exists for backwards compatibility
+    if "roles" not in user:
+        user["roles"] = ["user"]
     
     # Create token
     access_token = create_access_token(username=user["username"])

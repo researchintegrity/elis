@@ -1,12 +1,12 @@
 """
 File storage utilities for document and image upload handling
 """
+import logging
 import random
 import shutil
-import logging
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Tuple, Optional
-from datetime import datetime
+from typing import Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +98,25 @@ def get_panel_output_path(user_id: str, doc_id: str = None) -> Path:
     return panels_path
 
 
+def get_thumbnail_path(user_id: str, image_id: str) -> Path:
+    """
+    Get the path for a generated thumbnail
+    
+    Thumbnails are saved to:
+    /workspace/{user_id}/images/thumbnails/{image_id}.jpg
+    
+    Args:
+        user_id: User ID
+        image_id: Image ID
+        
+    Returns:
+        Path object for thumbnail file
+    """
+    thumb_dir = UPLOAD_DIR / user_id / "images" / "thumbnails"
+    thumb_dir.mkdir(parents=True, exist_ok=True)
+    return thumb_dir / f"{image_id}.jpg"
+
+
 def get_analysis_output_path(user_id: str, analysis_id: str, analysis_type: str) -> Path:
     """
     Get the path where analysis results should be saved
@@ -108,7 +127,7 @@ def get_analysis_output_path(user_id: str, analysis_id: str, analysis_type: str)
     Args:
         user_id: User ID
         analysis_id: Analysis ID
-        analysis_type: Type of analysis (e.g., 'single_image_copy_move', 'cross_image_copy_move')
+        analysis_type: Type of analysis (e.g., 'single_image_copy_move', 'cross_image_copy_move', 'screening_tool')
         
     Returns:
         Path object for analysis directory
@@ -120,6 +139,8 @@ def get_analysis_output_path(user_id: str, analysis_id: str, analysis_type: str)
         folder_name = "cmfd_cross"
     elif analysis_type == "trufor":
         folder_name = "trufor"
+    elif analysis_type == "screening_tool":
+        folder_name = "screening_tool"  # Client-side screening tool results (ELA, noise, etc.)
     else:
         folder_name = analysis_type
     
@@ -525,7 +546,7 @@ def update_user_storage_in_db(user_id: str) -> int:
             {
                 "$set": {
                     "storage_used_bytes": current_usage,
-                    "updated_at": __import__('datetime').datetime.utcnow()
+                    "updated_at": datetime.now(timezone.utc)
                 }
             }
         )

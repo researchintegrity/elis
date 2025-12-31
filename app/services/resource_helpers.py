@@ -1,11 +1,14 @@
 """
-Resource helper functions for common validation and resource retrieval patterns
-Eliminates code duplication across routes for resource ownership validation
+Resource helper functions for common validation and resource retrieval patterns.
+
+Eliminates code duplication across routes for resource ownership validation.
+Raises domain exceptions that are auto-converted to HTTP by FastAPI handlers.
 """
+from typing import Any, Callable, Dict
 
 from bson import ObjectId
-from typing import Callable, Dict, Any, Optional
-from fastapi import HTTPException, status
+
+from app.exceptions import ResourceNotFoundError, ValidationError
 
 
 async def get_owned_resource(
@@ -21,26 +24,23 @@ async def get_owned_resource(
     Called by routes to eliminate duplicate ObjectId validation and ownership checks.
     
     Args:
-        collection_getter: Function that returns the MongoDB collection (e.g., get_images_collection)
-        resource_id: Resource ID to retrieve (as string)
-        user_id: User ID (as string) who should own the resource
-        resource_name: Human-readable name for error messages (e.g., "Image", "Document", "Annotation")
+        collection_getter: Function that returns the MongoDB collection.
+        resource_id: Resource ID to retrieve (as string).
+        user_id: User ID (as string) who should own the resource.
+        resource_name: Human-readable name for error messages.
         
     Returns:
-        Document dictionary from MongoDB
+        Document dictionary from MongoDB.
         
     Raises:
-        HTTPException 400: If resource_id is not a valid ObjectId format
-        HTTPException 404: If resource not found or doesn't belong to user
+        ValidationError: If resource_id is not a valid ObjectId format.
+        ResourceNotFoundError: If resource not found or doesn't belong to user.
     """
     # Validate ObjectId format
     try:
         resource_oid = ObjectId(resource_id)
     except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid {resource_name.lower()} ID format"
-        )
+        raise ValidationError(f"Invalid {resource_name.lower()} ID format")
     
     # Retrieve resource with ownership check
     collection = collection_getter()
@@ -50,9 +50,10 @@ async def get_owned_resource(
     })
     
     if not resource:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"{resource_name} not found or doesn't belong to you"
+        raise ResourceNotFoundError(
+            resource_name, 
+            resource_id,
+            f"{resource_name} not found or doesn't belong to you"
         )
     
     return resource
@@ -70,33 +71,27 @@ async def get_resource_by_id(
     Prefer get_owned_resource for user-scoped operations.
     
     Args:
-        collection_getter: Function that returns the MongoDB collection
-        resource_id: Resource ID to retrieve (as string)
-        resource_name: Human-readable name for error messages
+        collection_getter: Function that returns the MongoDB collection.
+        resource_id: Resource ID to retrieve (as string).
+        resource_name: Human-readable name for error messages.
         
     Returns:
-        Document dictionary from MongoDB
+        Document dictionary from MongoDB.
         
     Raises:
-        HTTPException 400: If resource_id is not a valid ObjectId format
-        HTTPException 404: If resource not found
+        ValidationError: If resource_id is not a valid ObjectId format.
+        ResourceNotFoundError: If resource not found.
     """
     try:
         resource_oid = ObjectId(resource_id)
     except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid {resource_name.lower()} ID format"
-        )
+        raise ValidationError(f"Invalid {resource_name.lower()} ID format")
     
     collection = collection_getter()
     resource = collection.find_one({"_id": resource_oid})
     
     if not resource:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"{resource_name} not found"
-        )
+        raise ResourceNotFoundError(resource_name, resource_id)
     
     return resource
 

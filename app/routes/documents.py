@@ -1,44 +1,42 @@
 """
 Document upload routes for PDF file management
 """
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, status
-from fastapi.responses import FileResponse
-from typing import List
-from bson import ObjectId
 from datetime import datetime
 from pathlib import Path
-import logging
+from typing import List
 
-logger = logging.getLogger(__name__)
+from bson import ObjectId
+from celery.result import AsyncResult
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse
 
+from app.celery_config import celery_app
+from app.config.settings import convert_host_path_to_container
+from app.config.storage_quota import DEFAULT_USER_STORAGE_QUOTA
+from app.db.mongodb import get_documents_collection, get_images_collection
 from app.schemas import (
     DocumentResponse,
     ImageResponse,
-    WatermarkRemovalRequest,
     WatermarkRemovalInitiationResponse,
-    WatermarkRemovalStatusResponse
+    WatermarkRemovalRequest,
+    WatermarkRemovalStatusResponse,
 )
-from app.db.mongodb import get_documents_collection, get_images_collection
-from app.utils.security import get_current_user
-from app.utils.file_storage import (
-    validate_pdf,
-    save_pdf_file,
-    get_extraction_output_path,
-    check_storage_quota,
-    update_user_storage_in_db
-)
-from app.config.storage_quota import DEFAULT_USER_STORAGE_QUOTA
-from app.config.settings import convert_host_path_to_container
-from app.tasks.image_extraction import extract_images_from_document
-from app.services.watermark_removal_service import (
-    initiate_watermark_removal,
-    get_watermark_removal_status
-)
-from celery.result import AsyncResult
-from app.celery_config import celery_app
 from app.services.document_service import delete_document_and_artifacts
-from app.services.resource_helpers import get_owned_resource
 from app.services.quota_helpers import augment_with_quota
+from app.services.resource_helpers import get_owned_resource
+from app.services.watermark_removal_service import (
+    get_watermark_removal_status,
+    initiate_watermark_removal,
+)
+from app.tasks.image_extraction import extract_images_from_document
+from app.utils.file_storage import (
+    check_storage_quota,
+    get_extraction_output_path,
+    save_pdf_file,
+    update_user_storage_in_db,
+    validate_pdf,
+)
+from app.utils.security import get_current_user
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -268,12 +266,11 @@ async def get_document(
     doc = augment_with_quota(doc, user_id_str, user_quota)
     
     # Return raw dict (convert ObjectId and datetime for JSON serialization)
-    from datetime import datetime as dt
     result = {}
     for key, value in doc.items():
         if isinstance(value, ObjectId):
             result[key] = str(value)
-        elif isinstance(value, dt):
+        elif isinstance(value, datetime):
             result[key] = value.isoformat()
         else:
             result[key] = value
@@ -377,40 +374,25 @@ async def download_document(
 async def delete_document(
     doc_id: str,
     current_user: dict = Depends(get_current_user)
-):
+) -> None:
     """
-    Delete a document and its associated extracted images and annotations
+    Delete a document and its associated extracted images and annotations.
+    
+    The document file, extracted images, and all annotations are removed.
     
     Args:
-        doc_id: Document ID
-        current_user: Current authenticated user
+        doc_id: Document ID to delete.
+        current_user: Current authenticated user.
+        
+    Raises:
+        ValidationError: If document ID format is invalid.
+        ResourceNotFoundError: If document not found.
+        FileOperationError: If file deletion fails.
     """
-    try:
-        await delete_document_and_artifacts(
-            document_id=doc_id,
-            user_id=str(current_user["_id"])
-        )
-    except ValueError as e:
-        if "Invalid document ID" in str(e):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=str(e)
-            )
-        elif "Document not found" in str(e):
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=str(e)
-            )
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=str(e)
-            )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete document: {str(e)}"
-        )
+    await delete_document_and_artifacts(
+        document_id=doc_id,
+        user_id=str(current_user["_id"])
+    )
 
 
 # ============================================================================

@@ -18,6 +18,9 @@ async def get_current_user_info(current_user: dict = Depends(get_current_active_
     
     Returns the profile of the currently authenticated user
     """
+    # Ensure roles field exists for backwards compatibility
+    if "roles" not in current_user:
+        current_user["roles"] = ["user"]
     return UserResponse(**current_user).dict(by_alias=True)
 
 

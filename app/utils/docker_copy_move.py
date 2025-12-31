@@ -273,6 +273,16 @@ def run_copy_move_detection_with_docker(
         Tuple (success, message, results)
         results is a dict containing paths to the generated images
     """
+    # Validate method parameter
+    if method not in [METHOD_DENSE, METHOD_KEYPOINT]:
+        return False, f"Invalid method '{method}'. Must be '{METHOD_DENSE}' or '{METHOD_KEYPOINT}'", {}
+    
+    # Validate descriptor parameter for keypoint method
+    if method == METHOD_KEYPOINT:
+        valid_descriptors = ["cv_sift", "cv_rsift", "vlfeat_sift_heq"]
+        if descriptor not in valid_descriptors:
+            return False, f"Invalid descriptor '{descriptor}'. Must be one of: {', '.join(valid_descriptors)}", {}
+    
     # Setup and validate paths
     success, error_msg, paths = _setup_paths(
         user_id, analysis_id, analysis_type, image_path, target_image_path

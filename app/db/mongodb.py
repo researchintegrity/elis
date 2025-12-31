@@ -1,12 +1,16 @@
 """
 MongoDB database connection and configuration
 """
-from pymongo import MongoClient
-from fastapi import HTTPException, status
+import logging
 import os
+
 from dotenv import load_dotenv
+from fastapi import HTTPException, status
+from pymongo import MongoClient
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 # These are read dynamically so test fixtures can override them
 def get_mongodb_url():
@@ -27,27 +31,27 @@ class MongoDBConnection:
             cls._instance = super().__new__(cls)
         return cls._instance
 
-    def connect(self):
-        """Connect to MongoDB"""
+    def connect(self) -> None:
+        """Connect to MongoDB."""
         try:
             mongodb_url = get_mongodb_url()
             database_name = get_database_name()
             self._client = MongoClient(mongodb_url, serverSelectionTimeoutMS=5000)
             self._client.admin.command('ping')
             self._db = self._client[database_name]
-            print(f"✅ Connected to MongoDB: {database_name}")
+            logger.info("Connected to MongoDB: %s", database_name)
         except Exception as e:
-            print(f"❌ MongoDB connection failed: {str(e)}")
+            logger.error("MongoDB connection failed: %s", str(e))
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail=f"MongoDB connection failed: {str(e)}"
             )
 
-    def disconnect(self):
-        """Disconnect from MongoDB"""
+    def disconnect(self) -> None:
+        """Disconnect from MongoDB."""
         if self._client:
             self._client.close()
-            print("✅ Disconnected from MongoDB")
+            logger.info("Disconnected from MongoDB")
 
     def get_database(self):
         """Get database instance"""
@@ -103,9 +107,10 @@ def get_images_collection():
     return collection
 
 
-def get_annotations_collection():
-    """Get annotations collection with indexes for image annotations"""
-    collection = db_connection.get_collection("annotations")
+
+def get_single_annotations_collection():
+    """Get single_annotations collection for single-image annotations"""
+    collection = db_connection.get_collection("single_annotations")
     
     # Create indexes for better performance
     collection.create_index("user_id")
@@ -117,8 +122,26 @@ def get_annotations_collection():
     return collection
 
 
+def get_dual_annotations_collection():
+    """Get dual_annotations collection for cross-image annotations"""
+    collection = db_connection.get_collection("dual_annotations")
+    
+    # Create indexes for better performance
+    collection.create_index("user_id")
+    collection.create_index("source_image_id")  # Image where annotation is drawn
+    collection.create_index("target_image_id")  # Linked target image
+    collection.create_index("link_id")
+    collection.create_index("created_at")
+    collection.create_index([("user_id", 1), ("source_image_id", 1)])
+    collection.create_index([("user_id", 1), ("target_image_id", 1)])
+    collection.create_index([("user_id", 1), ("link_id", 1)])
+    collection.create_index([("source_image_id", 1), ("target_image_id", 1)])
+    
+    return collection
+
+
 def get_analyses_collection():
-    """Get analyses collection with indexes for copy-move detection"""
+    """Get analyses collection with indexes for copy-move detection and analysis dashboard"""
     collection = db_connection.get_collection("analyses")
     
     # Create indexes for better performance
@@ -128,7 +151,33 @@ def get_analyses_collection():
     collection.create_index("type")
     collection.create_index("status")
     collection.create_index("created_at")
+    # Compound indexes for common Analysis Dashboard queries
     collection.create_index([("user_id", 1), ("created_at", -1)])
+    collection.create_index([("user_id", 1), ("type", 1), ("created_at", -1)])
+    collection.create_index([("user_id", 1), ("status", 1), ("created_at", -1)])
+    collection.create_index([("user_id", 1), ("source_image_id", 1)])
+    
+    return collection
+
+
+def get_relationships_collection():
+    """Get image_relationships collection for storing image-to-image relationships"""
+    collection = db_connection.get_collection("image_relationships")
+    
+    # Create indexes for better performance
+    collection.create_index("user_id")
+    collection.create_index("image1_id")
+    collection.create_index("image2_id")
+    collection.create_index("source_type")
+    collection.create_index("created_at")
+    # Unique compound index to prevent duplicate relationships (IDs are normalized/sorted)
+    collection.create_index(
+        [("user_id", 1), ("image1_id", 1), ("image2_id", 1)],
+        unique=True
+    )
+    # Query relationships for an image (check both directions)
+    collection.create_index([("user_id", 1), ("image1_id", 1)])
+    collection.create_index([("user_id", 1), ("image2_id", 1)])
     
     return collection
 

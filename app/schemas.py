@@ -3,7 +3,7 @@ Pydantic schemas for request/response validation
 """
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from datetime import datetime
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, List, Any, Literal
 from bson import ObjectId
 from enum import Enum
 from app.config.settings import (
@@ -67,10 +67,12 @@ class UserResponse(BaseModel):
     email: str
     full_name: Optional[str] = None
     is_active: bool
+    roles: List[str] = Field(default_factory=lambda: ["user"])
     storage_used_bytes: int = 0
     storage_limit_bytes: int = 1073741824  # 1 GB default
     created_at: datetime
     updated_at: datetime
+    last_login_at: Optional[datetime] = None
 
     @field_validator('id', mode='before')
     @classmethod
@@ -89,10 +91,12 @@ class UserResponse(BaseModel):
                 "email": "john@example.com",
                 "full_name": "John Doe",
                 "is_active": True,
+                "roles": ["user"],
                 "storage_used_bytes": 524288000,
                 "storage_limit_bytes": 1073741824,
                 "created_at": "2025-01-01T10:00:00",
-                "updated_at": "2025-01-02T15:30:00"
+                "updated_at": "2025-01-02T15:30:00",
+                "last_login_at": "2025-01-02T15:30:00"
             }
         }
 
@@ -156,10 +160,12 @@ class UserInDB(BaseModel):
     hashed_password: str
     full_name: Optional[str] = None
     is_active: bool = True
+    roles: List[str] = Field(default_factory=lambda: ["user"])
     storage_used_bytes: int = 0  # Total storage used (PDFs + images)
     storage_limit_bytes: int = 1073741824  # 1 GB default
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+    last_login_at: Optional[datetime] = None
 
 
 # ============================================================================
@@ -314,6 +320,9 @@ class ImageResponse(BaseModel):
     analysis_results: Dict[str, Dict] = Field(default_factory=dict, description="Results of analyses")
     analysis_ids: List[str] = Field(default_factory=list, description="List of analysis IDs involving this image")
     
+    # Flagged for review
+    is_flagged: bool = Field(default=False, description="Whether image is flagged as suspicious for review")
+    
     uploaded_date: datetime
     user_storage_used: int = 0  # Total bytes used by user
     user_storage_remaining: int = 1073741824  # Remaining quota
@@ -363,6 +372,7 @@ class ImageInDB(BaseModel):
     document_id: Optional[str] = None
     uploaded_date: datetime = Field(default_factory=datetime.utcnow)
     analysis_ids: List[str] = Field(default_factory=list)
+    is_flagged: bool = Field(default=False, description="Whether image is flagged as suspicious")
 
 
 class PaginatedImageResponse(BaseModel):
@@ -497,42 +507,42 @@ class CoordinateInfo(BaseModel):
         }
 
 
-class AnnotationCreate(BaseModel):
-    """Annotation creation request"""
+# Legacy Annotation Schemas removed per user request
+
+
+
+# ============================================================================
+# Single Annotation Schemas (for single-image annotations)
+# ============================================================================
+
+class SingleAnnotationCreate(BaseModel):
+    """Single-image annotation creation request"""
     image_id: str = Field(..., description="ID of the image being annotated")
     text: str = Field("", max_length=1000, description="Annotation text/description")
     coords: CoordinateInfo = Field(..., description="Annotation coordinates")
-    type: Optional[str] = Field("manipulation", description="Annotation type/label (e.g., manipulation, copy-move, splicing)")
-    group_id: Optional[int] = Field(None, description="Group ID for related annotations (e.g., copy-move pairs)")
-    shape_type: Optional[str] = Field("rectangle", description="Shape type: rectangle, ellipse, or polygon")
+    type: Optional[str] = Field("manipulation", description="Annotation type/label")
+    shape_type: Optional[Literal["rectangle", "ellipse", "polygon"]] = Field("rectangle", description="Shape type")
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "image_id": "507f1f77bcf86cd799439013",
                 "text": "Detected manipulation region",
-                "coords": {
-                    "x": 25.5,
-                    "y": 30.1,
-                    "width": 10.2,
-                    "height": 15.8
-                },
+                "coords": {"x": 25.5, "y": 30.1, "width": 10.2, "height": 15.8},
                 "type": "manipulation",
-                "group_id": None,
                 "shape_type": "rectangle"
             }
         }
 
 
-class AnnotationResponse(BaseModel):
-    """Annotation response model"""
+class SingleAnnotationResponse(BaseModel):
+    """Single-image annotation response model"""
     id: str = Field(alias="_id", serialization_alias="_id")
     user_id: str
     image_id: str
     text: str
     coords: CoordinateInfo
     type: Optional[str] = "manipulation"
-    group_id: Optional[int] = None
     shape_type: Optional[str] = "rectangle"
     created_at: datetime
     updated_at: datetime
@@ -540,20 +550,92 @@ class AnnotationResponse(BaseModel):
     class Config:
         from_attributes = True
         populate_by_name = True
+
+
+# ============================================================================
+# Dual Annotation Schemas (for cross-image annotations)
+# ============================================================================
+
+class DualAnnotationCreate(BaseModel):
+    """Dual-image annotation creation request - annotation box on one image linked to another"""
+    source_image_id: str = Field(..., description="Image where this annotation is drawn")
+    target_image_id: str = Field(..., description="The linked target image")
+    link_id: str = Field(..., description="Unique ID linking source and target annotations")
+    coords: CoordinateInfo = Field(..., description="Annotation coordinates")
+    pair_name: Optional[str] = Field(None, description="User-defined pair name (e.g., 'Pair 1')")
+    pair_color: Optional[str] = Field(None, description="Pair color hex code")
+    text: str = Field("", max_length=1000, description="Annotation text/description")
+    shape_type: Optional[Literal["rectangle", "ellipse", "polygon"]] = Field("rectangle", description="Shape type")
+
+    class Config:
         json_schema_extra = {
             "example": {
-                "_id": "507f1f77bcf86cd799439014",
-                "user_id": "507f1f77bcf86cd799439011",
-                "image_id": "507f1f77bcf86cd799439013",
-                "text": "Núcleo celular identificado",
-                "coords": {
-                    "x": 25.5,
-                    "y": 30.1,
-                    "width": 10.2,
-                    "height": 15.8
-                },
-                "created_at": "2025-01-01T10:00:00",
-                "updated_at": "2025-01-01T10:00:00"
+                "source_image_id": "507f1f77bcf86cd799439013",
+                "target_image_id": "507f1f77bcf86cd799439014",
+                "link_id": "link_abc123",
+                "coords": {"x": 25.5, "y": 30.1, "width": 10.2, "height": 15.8},
+                "pair_name": "Pair 1",
+                "pair_color": "#EF4444",
+                "text": "Matched region",
+                "shape_type": "rectangle"
+            }
+        }
+
+
+class DualAnnotationResponse(BaseModel):
+    """Dual-image annotation response model"""
+    id: str = Field(alias="_id", serialization_alias="_id")
+    user_id: str
+    source_image_id: str
+    target_image_id: str
+    link_id: str
+    coords: CoordinateInfo
+    pair_name: Optional[str] = None
+    pair_color: Optional[str] = None
+    text: str
+    shape_type: Optional[str] = "rectangle"
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+        populate_by_name = True
+
+
+class DualAnnotationBatchCreate(BaseModel):
+    """Batch create dual annotations"""
+    annotations: List[DualAnnotationCreate] = Field(..., min_length=1, max_length=100, description="List of dual annotations to create")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "annotations": [
+                    {
+                        "source_image_id": "507f1f77bcf86cd799439013",
+                        "target_image_id": "507f1f77bcf86cd799439014",
+                        "link_id": "link_abc123",
+                        "coords": {"x": 25.5, "y": 30.1, "width": 10.2, "height": 15.8},
+                        "pair_name": "Pair 1",
+                        "pair_color": "#EF4444"
+                    }
+                ]
+            }
+        }
+
+
+class DualAnnotationUpdate(BaseModel):
+    """Dual-image annotation update request - partial update"""
+    coords: Optional[CoordinateInfo] = Field(None, description="Updated annotation coordinates")
+    pair_name: Optional[str] = Field(None, description="Updated pair name")
+    pair_color: Optional[str] = Field(None, description="Updated pair color hex code")
+    text: Optional[str] = Field(None, max_length=1000, description="Updated annotation text")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "coords": {"x": 30.0, "y": 35.0, "width": 12.0, "height": 18.0},
+                "pair_name": "Renamed Pair",
+                "pair_color": "#3B82F6"
             }
         }
 
@@ -760,6 +842,7 @@ class CBIRSearchResult(BaseModel):
     document_id: Optional[str] = Field(None, description="Source document ID if extracted")
     image_type: List[str] = Field(default_factory=list, description="Image type labels")
     cbir_labels: List[str] = Field(default_factory=list, description="CBIR index labels")
+    is_flagged: bool = Field(default=False, description="Whether image is flagged as suspicious")
 
 
 class CBIRSearchResponse(BaseModel):
@@ -814,6 +897,7 @@ class AnalysisType(str, Enum):
     TRUFOR = "trufor"
     CBIR_SEARCH = "cbir_search"
     PROVENANCE = "provenance"
+    SCREENING_TOOL = "screening_tool"  # Client-side screening tools (ELA, Noise Analysis, Magnifier, etc.)
 
 
 class AnalysisStatus(str, Enum):
@@ -831,6 +915,10 @@ class AnalysisBase(BaseModel):
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     status: AnalysisStatus = AnalysisStatus.PENDING
     error: Optional[str] = None
+    parameters: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Analysis-specific parameters used to configure this analysis"
+    )
 
 
 class SingleImageAnalysisCreate(BaseModel):
@@ -843,6 +931,33 @@ class SingleImageAnalysisCreate(BaseModel):
     )
     # Dense method sub-parameter (1-5)
     dense_method: int = Field(2, ge=1, le=5, description="Dense method variant (1-5)")
+
+
+class TruForAnalysisCreate(BaseModel):
+    """Request to create a TruFor forgery detection analysis"""
+    image_id: str = Field(..., description="ID of the image to analyze")
+    save_noiseprint: bool = Field(
+        default=False,
+        description="Whether to save the noiseprint map (useful for advanced analysis)"
+    )
+
+
+class ScreeningToolAnalysisCreate(BaseModel):
+    """Request to save a screening tool/client-side analysis result"""
+    image_id: str = Field(..., description="ID of the image that was analyzed")
+    analysis_subtype: str = Field(
+        ...,
+        description="Subtype of analysis (e.g., 'ela', 'noise_analysis', 'magnifier', 'histogram')"
+    )
+    parameters: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Parameters used in the client-side analysis (e.g., quality level for ELA)"
+    )
+    notes: Optional[str] = Field(
+        None,
+        max_length=2000,
+        description="Optional notes or observations about the analysis"
+    )
 
 
 class CrossImageAnalysisCreate(BaseModel):
@@ -875,6 +990,11 @@ class AnalysisResult(BaseModel):
     files: Optional[List[str]] = None
     logs: Optional[Dict[str, Any]] = None
     
+    # TruFor specific fields
+    pred_map: Optional[str] = None  # Prediction/localization map path
+    conf_map: Optional[str] = None  # Confidence map path
+    noiseprint: Optional[str] = None  # Noiseprint map path (optional)
+    
     # CBIR specific fields
     query_image_id: Optional[str] = None
     top_k: Optional[int] = None
@@ -905,3 +1025,294 @@ class AnalysisResponse(AnalysisBase):
         json_encoders = {ObjectId: str}
         populate_by_name = True
 
+
+# ============================================================================
+# Admin Panel Schemas
+# ============================================================================
+
+class AdminUserResponse(BaseModel):
+    """Extended user response for admin panel"""
+    id: str = Field(alias="_id")
+    username: str
+    email: str
+    full_name: Optional[str] = None
+    is_active: bool
+    roles: List[str] = Field(default_factory=lambda: ["user"])
+    storage_used_bytes: int = 0
+    storage_limit_bytes: int = 1073741824
+    created_at: datetime
+    updated_at: datetime
+    last_login_at: Optional[datetime] = None
+
+    @field_validator('id', mode='before')
+    @classmethod
+    def convert_object_id(cls, v):
+        """Convert MongoDB ObjectId to string"""
+        if isinstance(v, ObjectId):
+            return str(v)
+        return v
+
+    class Config:
+        from_attributes = True
+        populate_by_name = True
+
+
+class AdminUserListResponse(BaseModel):
+    """Paginated list of users for admin panel"""
+    users: List[AdminUserResponse]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+
+
+class AdminUpdateQuotaRequest(BaseModel):
+    """Request to update a user's storage quota"""
+    storage_limit_bytes: int = Field(
+        ...,
+        gt=0,
+        description="New storage limit in bytes (must be positive)"
+    )
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "storage_limit_bytes": 5368709120  # 5 GB
+            }
+        }
+
+
+class AdminUpdateRoleRequest(BaseModel):
+    """Request to update a user's roles"""
+    roles: List[str] = Field(
+        ...,
+        min_length=1,
+        description="List of roles to assign to the user"
+    )
+
+    @field_validator('roles')
+    @classmethod
+    def validate_roles(cls, v):
+        """Validate that roles are valid"""
+        valid_roles = {"user", "admin"}
+        for role in v:
+            if role not in valid_roles:
+                raise ValueError(f"Invalid role: {role}. Valid roles are: {valid_roles}")
+        if "user" not in v:
+            v = ["user"] + v  # Always include 'user' base role
+        return list(set(v))  # Remove duplicates
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "roles": ["user", "admin"]
+            }
+        }
+
+
+class AdminResetPasswordRequest(BaseModel):
+    """Request to reset a user's password (optional - if not provided, generates random)"""
+    new_password: Optional[str] = Field(
+        None,
+        min_length=PASSWORD_MIN_LENGTH,
+        description=f"New password (min {PASSWORD_MIN_LENGTH} characters). If not provided, a secure random password will be generated."
+    )
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "new_password": "NewSecurePassword123"
+            }
+        }
+
+
+class AdminResetPasswordResponse(BaseModel):
+    """Response after password reset"""
+    message: str
+    generated_password: Optional[str] = Field(
+        None,
+        description="Only returned if password was auto-generated"
+    )
+
+
+class AdminUpdateUserStatusRequest(BaseModel):
+    """Request to activate/deactivate a user"""
+    is_active: bool = Field(..., description="Set to true to activate, false to deactivate")
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "is_active": False
+            }
+        }
+
+
+# ============================================================================
+# Image Relationship Schemas
+# ============================================================================
+
+class RelationshipSourceType(str, Enum):
+    """Source of the relationship between images"""
+    PROVENANCE = "provenance"
+    CROSS_COPY_MOVE = "cross_copy_move"
+    SIMILARITY = "similarity"
+    MANUAL = "manual"
+
+
+class ImageRelationshipCreate(BaseModel):
+    """Request to create a relationship between two images"""
+    image1_id: str = Field(..., description="First image ID")
+    image2_id: str = Field(..., description="Second image ID")
+    source_type: RelationshipSourceType = Field(
+        default=RelationshipSourceType.MANUAL,
+        description="Source of the relationship"
+    )
+    source_analysis_id: Optional[str] = Field(
+        None,
+        description="Reference to analysis that discovered this relationship"
+    )
+    weight: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        description="Relationship strength (0-1, higher = stronger)"
+    )
+    metadata: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Additional context (matched keypoints, shared area, etc.)"
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "image1_id": "507f1f77bcf86cd799439013",
+                "image2_id": "507f1f77bcf86cd799439014",
+                "source_type": "manual",
+                "weight": 1.0
+            }
+        }
+
+
+class ImageRelationshipResponse(BaseModel):
+    """Response model for a relationship"""
+    id: str = Field(alias="_id")
+    user_id: str
+    image1_id: str
+    image2_id: str
+    source_type: str
+    source_analysis_id: Optional[str] = None
+    weight: float
+    metadata: Optional[Dict[str, Any]] = None
+    created_at: datetime
+    created_by: str = Field(description="'system' or user_id for manual")
+    # Enriched field (populated on query)
+    other_image: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Basic info of the related image (filename, thumbnail, is_flagged)"
+    )
+
+    @field_validator('id', mode='before')
+    @classmethod
+    def convert_object_id(cls, v):
+        """Convert MongoDB ObjectId to string"""
+        if isinstance(v, ObjectId):
+            return str(v)
+        return v
+
+    class Config:
+        from_attributes = True
+        populate_by_name = True
+        json_schema_extra = {
+            "example": {
+                "_id": "507f1f77bcf86cd799439015",
+                "user_id": "507f1f77bcf86cd799439011",
+                "image1_id": "507f1f77bcf86cd799439013",
+                "image2_id": "507f1f77bcf86cd799439014",
+                "source_type": "provenance",
+                "weight": 0.85,
+                "created_at": "2025-01-01T10:00:00",
+                "created_by": "system"
+            }
+        }
+
+
+class RelationshipGraphNode(BaseModel):
+    """Node in the relationship graph"""
+    id: str = Field(..., description="Image ID")
+    label: str = Field(..., description="Image filename")
+    is_flagged: bool = Field(default=False, description="Whether image is flagged")
+    is_query: bool = Field(default=False, description="Whether this is the query image")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "id": "507f1f77bcf86cd799439013",
+                "label": "figure_1.png",
+                "is_flagged": True,
+                "is_query": True
+            }
+        }
+
+
+class RelationshipGraphEdge(BaseModel):
+    """Edge in the relationship graph"""
+    source: str = Field(..., description="Source image ID")
+    target: str = Field(..., description="Target image ID")
+    weight: float = Field(..., description="Edge weight")
+    source_type: str = Field(..., description="Relationship source type")
+    id: str = Field(..., description="Relationship ID")
+    is_mst_edge: bool = Field(
+        default=False,
+        description="Whether part of Maximum Spanning Tree (render darker)"
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "source": "507f1f77bcf86cd799439013",
+                "target": "507f1f77bcf86cd799439014",
+                "weight": 0.85,
+                "source_type": "provenance",
+                "is_mst_edge": True
+            }
+        }
+
+
+class RelationshipGraphResponse(BaseModel):
+    """Full graph structure for visualization"""
+    query_image_id: str = Field(..., description="The image from which the graph was built")
+    nodes: List[RelationshipGraphNode] = Field(
+        default_factory=list,
+        description="All nodes in the graph"
+    )
+    edges: List[RelationshipGraphEdge] = Field(
+        default_factory=list,
+        description="All edges in the graph"
+    )
+    mst_edges: List[RelationshipGraphEdge] = Field(
+        default_factory=list,
+        description="Maximum Spanning Tree edges (for darker rendering)"
+    )
+    total_nodes_count: int = Field(
+        default=0,
+        description="Total number of nodes in the full connected graph (unlimited depth)"
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "query_image_id": "507f1f77bcf86cd799439013",
+                "nodes": [
+                    {"id": "507f1f77bcf86cd799439013", "label": "fig1.png", "is_flagged": True, "is_query": True},
+                    {"id": "507f1f77bcf86cd799439014", "label": "fig2.png", "is_flagged": True, "is_query": False}
+                ],
+                "edges": [
+                    {"source": "507f1f77bcf86cd799439013", "target": "507f1f77bcf86cd799439014", 
+                     "weight": 0.85, "source_type": "provenance", "is_mst_edge": True}
+                ],
+                "mst_edges": [
+                    {"source": "507f1f77bcf86cd799439013", "target": "507f1f77bcf86cd799439014",
+                     "weight": 0.85, "source_type": "provenance", "is_mst_edge": True}
+                ]
+            }
+        }
