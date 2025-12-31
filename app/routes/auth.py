@@ -9,7 +9,7 @@ from pymongo.errors import DuplicateKeyError
 
 from app.config.storage_quota import DEFAULT_USER_STORAGE_QUOTA
 from app.db.mongodb import get_users_collection
-from app.schemas import TokenResponse, UserLogin, UserRegister, UserResponse
+from app.schemas import TokenResponse, UserRegister, UserResponse
 from app.utils.security import (
     JWT_EXPIRATION_HOURS,
     create_access_token,

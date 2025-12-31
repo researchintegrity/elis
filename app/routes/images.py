@@ -1,7 +1,6 @@
 """
 Image upload routes for extracted and user-uploaded image management
 """
-import io
 import logging
 import math
 from datetime import datetime
@@ -11,7 +10,7 @@ from typing import List, Optional, Union
 from bson import ObjectId
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
-from PIL import Image, ImageOps
+from PIL import Image
 
 from app.celery_config import celery_app
 from app.config.settings import (
@@ -41,7 +40,6 @@ from app.services.panel_extraction_service import (
 from app.services.quota_helpers import augment_with_quota
 from app.services.resource_helpers import get_owned_resource
 from app.tasks.cbir import cbir_index_image, cbir_update_labels
-from app.tasks.copy_move_detection import detect_copy_move
 from app.utils.file_storage import (
     check_storage_quota,
     get_thumbnail_path,
@@ -663,38 +661,10 @@ async def delete_image(
         image_id: Image ID
         current_user: Current authenticated user
     """
-    try:
-        await delete_image_and_artifacts(
-            image_id=image_id,
-            user_id=str(current_user["_id"])
-        )
-    except ValueError as e:
-        error_msg = str(e)
-        if "Invalid image ID" in error_msg:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=error_msg
-            )
-        elif "not found" in error_msg:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=error_msg
-            )
-        elif "Cannot delete" in error_msg:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=error_msg
-            )
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=str(e)
-            )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete image: {str(e)}"
-        )
+    await delete_image_and_artifacts(
+        image_id=image_id,
+        user_id=str(current_user["_id"])
+    )
 
 
 # ============================================================================

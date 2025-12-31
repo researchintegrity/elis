@@ -38,7 +38,7 @@ def uploaded_image_id(auth_token):
     assert response.status_code == 201
     return response.json()["_id"]
 
-def test_single_annotations_lifecyle(auth_token, uploaded_image_id):
+def test_single_annotations_lifecycle(auth_token, uploaded_image_id):
     headers = {"Authorization": f"Bearer {auth_token}"}
     
     # 1. List - verify empty list works

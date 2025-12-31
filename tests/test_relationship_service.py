@@ -6,8 +6,9 @@ Run with: pytest tests/test_relationship_service.py -v
 """
 import pytest
 from unittest.mock import MagicMock, patch
-from datetime import datetime
 from bson import ObjectId
+
+from app.db.mongodb import get_images_collection
 
 # Import the service functions
 from app.services.relationship_service import (
@@ -100,12 +101,13 @@ class TestComputeMaxSpanningTree:
         assert len(mst) >= 1
 
 
+@pytest.mark.asyncio
 class TestCreateRelationship:
     """Test relationship creation with mocking"""
     
     @patch('app.services.relationship_service.get_relationships_collection')
     @patch('app.services.relationship_service.get_images_collection')
-    def test_create_relationship_returns_existing(self, mock_images, mock_rels):
+    async def test_create_relationship_returns_existing(self, mock_images, mock_rels):
         """If relationship exists, return it without creating duplicate"""
         existing_rel = {
             "_id": ObjectId(),
@@ -115,7 +117,7 @@ class TestCreateRelationship:
         }
         mock_rels.return_value.find_one.return_value = existing_rel
         
-        result = create_relationship(
+        result = await create_relationship(
             user_id="user1",
             image1_id="bbb",  # Intentionally reversed to test normalization
             image2_id="aaa",
@@ -127,17 +129,20 @@ class TestCreateRelationship:
     
     @patch('app.services.relationship_service.get_relationships_collection')
     @patch('app.services.relationship_service.get_images_collection')
-    def test_create_relationship_new(self, mock_images, mock_rels):
+    async def test_create_relationship_new(self, mock_images, mock_rels):
         """New relationship is created and auto-flagging occurs"""
         mock_rels.return_value.find_one.return_value = None
         mock_rels.return_value.insert_one.return_value = MagicMock(
             inserted_id=ObjectId()
         )
         
-        result = create_relationship(
+        valid_id1 = str(ObjectId())
+        valid_id2 = str(ObjectId())
+        
+        result = await create_relationship(
             user_id="user1",
-            image1_id="aaa",
-            image2_id="bbb",
+            image1_id=valid_id1,
+            image2_id=valid_id2,
             source_type="similarity",
             weight=0.85
         )
@@ -149,67 +154,71 @@ class TestCreateRelationship:
         mock_images.return_value.update_many.assert_called()
 
 
+@pytest.mark.asyncio
 class TestRemoveRelationship:
     """Test relationship removal"""
     
     @patch('app.services.relationship_service.get_relationships_collection')
-    def test_remove_existing_relationship(self, mock_rels):
+    async def test_remove_existing_relationship(self, mock_rels):
         """Removing existing relationship returns True"""
         mock_rels.return_value.delete_one.return_value = MagicMock(deleted_count=1)
         
         rel_id = str(ObjectId())
-        result = remove_relationship(rel_id, "user1")
+        result = await remove_relationship(rel_id, "user1")
         
         assert result is True
     
     @patch('app.services.relationship_service.get_relationships_collection')
-    def test_remove_nonexistent_relationship(self, mock_rels):
+    async def test_remove_nonexistent_relationship(self, mock_rels):
         """Removing non-existent relationship returns False"""
         mock_rels.return_value.delete_one.return_value = MagicMock(deleted_count=0)
         
-        result = remove_relationship(str(ObjectId()), "user1")
+        result = await remove_relationship(str(ObjectId()), "user1")
         
         assert result is False
 
 
+@pytest.mark.asyncio
 class TestRemoveRelationshipsForImage:
     """Test cascade deletion of relationships"""
     
     @patch('app.services.relationship_service.get_relationships_collection')
-    def test_remove_all_for_image(self, mock_rels):
+    async def test_remove_all_for_image(self, mock_rels):
         """All relationships involving an image are removed"""
         mock_rels.return_value.delete_many.return_value = MagicMock(deleted_count=5)
         
-        count = remove_relationships_for_image("image123", "user1")
+        count = await remove_relationships_for_image("image123", "user1")
         
         assert count == 5
         mock_rels.return_value.delete_many.assert_called_once()
 
 
+@pytest.mark.asyncio
 class TestGetRelationshipsForImage:
     """Test querying relationships"""
     
     @patch('app.services.relationship_service.get_relationships_collection')
     @patch('app.services.relationship_service.get_images_collection')
-    def test_get_relationships_basic(self, mock_images, mock_rels):
+    async def test_get_relationships_basic(self, mock_images, mock_rels):
         """Basic query returns relationships for image"""
         mock_rels.return_value.find.return_value = [
             {"_id": ObjectId(), "image1_id": "aaa", "image2_id": "bbb", "weight": 1.0}
         ]
         mock_images.return_value.find_one.return_value = {"filename": "test.png"}
         
-        results = get_relationships_for_image("aaa", "user1", include_image_details=True)
+        results = await get_relationships_for_image("aaa", "user1", include_image_details=True)
         
         assert len(results) == 1
         assert results[0]["image1_id"] == "aaa"
 
 
+@pytest.mark.asyncio
 class TestGetRelationshipGraph:
     """Test graph BFS traversal"""
     
     @patch('app.services.relationship_service.get_relationships_collection')
     @patch('app.services.relationship_service.get_images_collection')
-    def test_graph_single_node(self, mock_images, mock_rels):
+    async def test_graph_single_node(self, mock_images, mock_rels):
         """Graph with no relationships returns just the query node"""
         mock_images.return_value.find_one.return_value = {
             "_id": ObjectId("507f1f77bcf86cd799439011"),
@@ -218,7 +227,7 @@ class TestGetRelationshipGraph:
         }
         mock_rels.return_value.find.return_value = []
         
-        result = get_relationship_graph("507f1f77bcf86cd799439011", "user1")
+        result = await get_relationship_graph("507f1f77bcf86cd799439011", "user1")
         
         assert len(result["nodes"]) == 1
         assert result["nodes"][0]["is_query"] is True
@@ -226,7 +235,7 @@ class TestGetRelationshipGraph:
     
     @patch('app.services.relationship_service.get_relationships_collection')
     @patch('app.services.relationship_service.get_images_collection')
-    def test_graph_respects_max_depth(self, mock_images, mock_rels):
+    async def test_graph_respects_max_depth(self, mock_images, mock_rels):
         """BFS respects max_depth limit"""
         # This test verifies depth limiting works
         # Mock returns relationships that would extend beyond depth 1
@@ -239,7 +248,7 @@ class TestGetRelationshipGraph:
             []  # No more relationships from 'related'
         ]
         
-        result = get_relationship_graph("query", "user1", max_depth=1)
+        result = await get_relationship_graph("query", "user1", max_depth=1)
         
         # Should have explored up to depth 1
         assert "nodes" in result
@@ -249,6 +258,7 @@ class TestGetRelationshipGraph:
 
 # Integration test markers (require running services)
 @pytest.mark.integration
+@pytest.mark.asyncio
 class TestRelationshipServiceIntegration:
     """
     Integration tests that require MongoDB connection.
@@ -263,29 +273,39 @@ class TestRelationshipServiceIntegration:
     def test_image_ids(self):
         return [str(ObjectId()), str(ObjectId()), str(ObjectId())]
     
-    def test_full_relationship_lifecycle(self, test_user_id, test_image_ids, mongodb_connection):
+    async def test_full_relationship_lifecycle(self, test_user_id, test_image_ids, mongodb_connection):
         """Test create -> query -> remove flow"""
         img1, img2, img3 = test_image_ids
         
+        # 0. Insert dummy images so graph traversal works
+        images_col = get_images_collection()
+        for i, img_id in enumerate([img1, img2, img3]):
+            images_col.insert_one({
+                "_id": ObjectId(img_id),
+                "user_id": test_user_id,
+                "filename": f"test_img_{i}.png",
+                "is_flagged": False
+            })
+        
         # 1. Create relationships
-        rel1 = create_relationship(test_user_id, img1, img2, "manual", weight=0.8)
-        rel2 = create_relationship(test_user_id, img2, img3, "similarity", weight=0.6)
+        rel1 = await create_relationship(test_user_id, img1, img2, "manual", weight=0.8)
+        rel2 = await create_relationship(test_user_id, img2, img3, "similarity", weight=0.6)
         
         assert rel1 is not None
         assert rel2 is not None
         
         # 2. Query relationships
-        rels = get_relationships_for_image(img2, test_user_id, include_image_details=False)
+        rels = await get_relationships_for_image(img2, test_user_id, include_image_details=False)
         assert len(rels) >= 2  # img2 is connected to both img1 and img3
         
         # 3. Get graph
-        graph = get_relationship_graph(img1, test_user_id, max_depth=2)
+        graph = await get_relationship_graph(img1, test_user_id, max_depth=2)
         assert len(graph["nodes"]) >= 2
         
         # 4. Remove relationships
-        result1 = remove_relationship(str(rel1["_id"]), test_user_id)
+        result1 = await remove_relationship(str(rel1["_id"]), test_user_id)
         assert result1 is True
         
         # 5. Cascade delete
-        count = remove_relationships_for_image(img2, test_user_id)
+        count = await remove_relationships_for_image(img2, test_user_id)
         assert count >= 0

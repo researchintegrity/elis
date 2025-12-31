@@ -48,20 +48,17 @@ def _create_relationships_from_provenance(user_id: str, query_image_id: str, res
             logger.info(f"No edges found in provenance result for analysis {analysis_id}")
             return 0
         
-        created_count = 0
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
-        try:
-            for edge in edges:
-                # Handle different field name conventions
-                source_id = edge.get('from') or edge.get('source') or edge.get('image1_id')
-                target_id = edge.get('to') or edge.get('target') or edge.get('image2_id')
-                weight = edge.get('weight', 1.0)
-                
-                if source_id and target_id and source_id != target_id:
-                    try:
-                        loop.run_until_complete(
+        if edges:
+            async def process_edges():
+                tasks = []
+                for edge in edges:
+                    # Handle different field name conventions
+                    source_id = edge.get('from') or edge.get('source') or edge.get('image1_id')
+                    target_id = edge.get('to') or edge.get('target') or edge.get('image2_id')
+                    weight = edge.get('weight', 1.0)
+                    
+                    if source_id and target_id and source_id != target_id:
+                        tasks.append(
                             create_relationship(
                                 user_id=user_id,
                                 image1_id=source_id,
@@ -71,13 +68,22 @@ def _create_relationships_from_provenance(user_id: str, query_image_id: str, res
                                 metadata={'analysis_id': analysis_id}
                             )
                         )
-                        created_count += 1
-                        logger.debug(f"Created relationship: {source_id} <-> {target_id} (weight: {weight})")
-                    except Exception as e:
-                        # Continue even if individual relationship creation fails
-                        logger.warning(f"Failed to create relationship {source_id} <-> {target_id}: {e}")
-        finally:
-            loop.close()
+                
+                # Execute all creations concurrently
+                if tasks:
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+                    # Count successes
+                    return sum(1 for r in results if not isinstance(r, Exception))
+                return 0
+
+            try:
+                # Use asyncio.run to execute the async function in this synchronous context
+                created_count = asyncio.run(process_edges())
+                logger.info(f"Created {created_count} relationships from provenance analysis {analysis_id}")
+            except Exception as e:
+                logger.error(f"Failed to execute async relationship creation: {e}")
+        else:
+             logger.info(f"No edges to process for analysis {analysis_id}")
         
         logger.info(f"Created {created_count} relationships from provenance analysis {analysis_id}")
         return created_count

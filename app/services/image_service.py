@@ -5,7 +5,6 @@ Provides business logic for image CRUD operations including cascade deletion and
 """
 import logging
 import re
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from bson import ObjectId

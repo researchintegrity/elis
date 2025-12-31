@@ -1,7 +1,6 @@
 """
 Document upload routes for PDF file management
 """
-import logging
 from datetime import datetime
 from pathlib import Path
 from typing import List
@@ -10,7 +9,6 @@ from bson import ObjectId
 from celery.result import AsyncResult
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
-import logging
 
 from app.celery_config import celery_app
 from app.config.settings import convert_host_path_to_container

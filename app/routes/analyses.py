@@ -698,7 +698,7 @@ async def save_screening_tool_analysis(
     user_id_str = str(current_user["_id"])
     
     # Verify ownership of the image
-    image = await get_owned_resource(
+    await get_owned_resource(
         get_images_collection,
         image_id,
         user_id_str,

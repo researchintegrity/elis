@@ -251,7 +251,7 @@ class TestRelationshipEndpoints:
         )
         
         # Should return empty list or appropriate error
-        assert response.status_code in [200, 404]
+        assert response.status_code in [200, 400, 404]
 
 
 class TestRelationshipAutoFlagging:

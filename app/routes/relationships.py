@@ -4,11 +4,11 @@ Image Relationship Routes
 REST API endpoints for managing image-to-image relationships.
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from typing import List, Optional
+from typing import List
 from bson import ObjectId
 
 from app.utils.security import get_current_user
-from app.db.mongodb import get_images_collection, get_relationships_collection
+from app.db.mongodb import get_images_collection
 from app.schemas import (
     ImageRelationshipCreate,
     ImageRelationshipResponse,
