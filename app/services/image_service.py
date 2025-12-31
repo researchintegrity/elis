@@ -1,23 +1,29 @@
 """
-Image service for handling image operations
-Provides business logic for image CRUD operations including cascade deletion and listing
-"""
+Image service for handling image operations.
 
-from typing import List, Dict, Any, Optional
-from bson import ObjectId
-from app.db.mongodb import (
-    get_images_collection,
-    get_single_annotations_collection,
-    get_dual_annotations_collection
-)
-from app.utils.file_storage import (
-    delete_file,
-    update_user_storage_in_db
-)
-from app.tasks.cbir import cbir_delete_image
-from app.services.relationship_service import remove_relationships_for_image
+Provides business logic for image CRUD operations including cascade deletion and listing.
+"""
 import logging
 import re
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+from bson import ObjectId
+
+from app.db.mongodb import (
+    get_dual_annotations_collection,
+    get_images_collection,
+    get_single_annotations_collection,
+)
+from app.exceptions import (
+    AuthorizationError,
+    FileOperationError,
+    ResourceNotFoundError,
+    ValidationError,
+)
+from app.services.relationship_service import remove_relationships_for_image
+from app.tasks.cbir import cbir_delete_image
+from app.utils.file_storage import delete_file, update_user_storage_in_db
 
 logger = logging.getLogger(__name__)
 
@@ -27,21 +33,23 @@ async def delete_image_and_artifacts(
     user_id: str
 ) -> dict:
     """
-    Delete an image and all its associated artifacts (file and annotations)
+    Delete an image and all its associated artifacts (file and annotations).
     
     This is the single source of truth for image deletion logic.
     Called by both REST endpoints and can be imported by other services.
     
     Args:
-        image_id: Image ID to delete
-        user_id: User ID (as string) who owns the image
+        image_id: Image ID to delete.
+        user_id: User ID (as string) who owns the image.
         
     Returns:
-        Dictionary with deletion results
+        Dictionary with deletion results.
         
     Raises:
-        ValueError: If image not found, invalid ID, or image type restriction
-        Exception: If deletion fails
+        ValidationError: If image ID format is invalid.
+        ResourceNotFoundError: If image not found.
+        AuthorizationError: If trying to delete extracted images directly.
+        FileOperationError: If file deletion fails.
     """
     images_col = get_images_collection()
     
@@ -49,7 +57,7 @@ async def delete_image_and_artifacts(
     try:
         img_oid = ObjectId(image_id)
     except Exception:
-        raise ValueError("Invalid image ID format")
+        raise ValidationError("Invalid image ID format")
     
     img = images_col.find_one({
         "_id": img_oid,
@@ -57,11 +65,13 @@ async def delete_image_and_artifacts(
     })
     
     if not img:
-        raise ValueError("Image not found")
+        raise ResourceNotFoundError("Image", image_id)
     
     # Check if extracted - cannot delete extracted images directly
     if img.get("source_type") == "extracted":
-        raise ValueError("Cannot delete extracted images directly. Delete the document instead.")
+        raise AuthorizationError(
+            "Cannot delete extracted images directly. Delete the document instead."
+        )
     
     # Delete from CBIR index if it was indexed
     if img.get("cbir_indexed"):
@@ -79,7 +89,7 @@ async def delete_image_and_artifacts(
     # Delete image file from disk
     success, error = delete_file(img["file_path"])
     if not success:
-        raise Exception(f"Failed to delete image file: {error}")
+        raise FileOperationError("delete", img["file_path"], error)
     
     # Delete associated annotations from both single and dual collections
     single_annotations_col = get_single_annotations_collection()
@@ -180,7 +190,7 @@ async def list_images(
     
     # Validate source_type if provided
     if source_type and source_type not in ["extracted", "uploaded", "panel"]:
-        raise ValueError("source_type must be 'extracted', 'uploaded', or 'panel'")
+        raise ValidationError("source_type must be 'extracted', 'uploaded', or 'panel'")
     
     # Build query
     query = {"user_id": user_id}

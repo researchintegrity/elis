@@ -1,12 +1,30 @@
 """
 ELIS Scientific Image Analysis System
 """
+import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from app.routes import auth, users, documents, images, api, analyses, provenance, admin
-from app.routes import cbir, relationships, single_annotations, dual_annotations
+from fastapi.responses import JSONResponse
+
 from app.db.mongodb import db_connection
+from app.exceptions import ELISException
+from app.routes import (
+    admin,
+    analyses,
+    api,
+    auth,
+    cbir,
+    documents,
+    dual_annotations,
+    images,
+    provenance,
+    relationships,
+    single_annotations,
+    users,
+)
+
+logger = logging.getLogger(__name__)
 
 # Create FastAPI app
 app = FastAPI(
@@ -53,15 +71,39 @@ app.include_router(api.router)
 
 
 # ============================================================================
+# EXCEPTION HANDLERS
+# ============================================================================
+@app.exception_handler(ELISException)
+async def elis_exception_handler(request: Request, exc: ELISException) -> JSONResponse:
+    """
+    Handle custom ELIS exceptions and convert to JSON responses.
+    
+    This allows services to raise domain exceptions (ValidationError,
+    ResourceNotFoundError, etc.) which are automatically converted
+    to appropriate HTTP responses.
+    """
+    logger.warning(
+        "ELIS exception: %s (status=%d, path=%s)",
+        exc.message,
+        exc.status_code,
+        request.url.path
+    )
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.message}
+    )
+
+
+# ============================================================================
 # LIFECYCLE EVENTS
 # ============================================================================
 @app.on_event("startup")
-async def startup_event():
-    """Initialize database connection on startup"""
+async def startup_event() -> None:
+    """Initialize database connection on startup."""
     try:
         db_connection.connect()
     except Exception as e:
-        print(f"Failed to connect to MongoDB: {str(e)}")
+        logger.error("Failed to connect to MongoDB: %s", str(e))
 
 
 @app.on_event("shutdown")

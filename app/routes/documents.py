@@ -376,40 +376,25 @@ async def download_document(
 async def delete_document(
     doc_id: str,
     current_user: dict = Depends(get_current_user)
-):
+) -> None:
     """
-    Delete a document and its associated extracted images and annotations
+    Delete a document and its associated extracted images and annotations.
+    
+    The document file, extracted images, and all annotations are removed.
     
     Args:
-        doc_id: Document ID
-        current_user: Current authenticated user
+        doc_id: Document ID to delete.
+        current_user: Current authenticated user.
+        
+    Raises:
+        ValidationError: If document ID format is invalid.
+        ResourceNotFoundError: If document not found.
+        FileOperationError: If file deletion fails.
     """
-    try:
-        await delete_document_and_artifacts(
-            document_id=doc_id,
-            user_id=str(current_user["_id"])
-        )
-    except ValueError as e:
-        if "Invalid document ID" in str(e):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=str(e)
-            )
-        elif "Document not found" in str(e):
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=str(e)
-            )
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=str(e)
-            )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete document: {str(e)}"
-        )
+    await delete_document_and_artifacts(
+        document_id=doc_id,
+        user_id=str(current_user["_id"])
+    )
 
 
 # ============================================================================

@@ -1,24 +1,30 @@
 """
-Document service for handling document operations
-Provides business logic for document CRUD operations
-"""
+Document service for handling document operations.
 
+Provides business logic for document CRUD operations.
+"""
+import logging
 from pathlib import Path
+
 from bson import ObjectId
+
 from app.db.mongodb import (
     get_documents_collection,
+    get_dual_annotations_collection,
     get_images_collection,
     get_single_annotations_collection,
-    get_dual_annotations_collection
 )
-from app.utils.file_storage import (
-    delete_file,
-    delete_directory,
-    update_user_storage_in_db
+from app.exceptions import (
+    FileOperationError,
+    ResourceNotFoundError,
+    ValidationError,
 )
 from app.tasks.cbir import cbir_delete_image
-import logging
-
+from app.utils.file_storage import (
+    delete_directory,
+    delete_file,
+    update_user_storage_in_db,
+)
 logger = logging.getLogger(__name__)
 
 
@@ -27,21 +33,22 @@ async def delete_document_and_artifacts(
     user_id: str
 ) -> dict:
     """
-    Delete a document and all its associated artifacts (files, images, annotations)
+    Delete a document and all its associated artifacts (files, images, annotations).
     
     This is the single source of truth for document deletion logic.
     Called by both REST endpoints and can be imported by other services.
     
     Args:
-        document_id: Document ID to delete
-        user_id: User ID (as string) who owns the document
+        document_id: Document ID to delete.
+        user_id: User ID (as string) who owns the document.
         
     Returns:
-        Dictionary with deletion results
+        Dictionary with deletion results.
         
     Raises:
-        ValueError: If document not found
-        Exception: If deletion fails
+        ValidationError: If document ID format is invalid.
+        ResourceNotFoundError: If document not found.
+        FileOperationError: If file deletion fails.
     """
     documents_col = get_documents_collection()
     images_col = get_images_collection()
@@ -50,7 +57,7 @@ async def delete_document_and_artifacts(
     try:
         doc_oid = ObjectId(document_id)
     except Exception:
-        raise ValueError("Invalid document ID format")
+        raise ValidationError("Invalid document ID format")
     
     doc = documents_col.find_one({
         "_id": doc_oid,
@@ -58,23 +65,20 @@ async def delete_document_and_artifacts(
     })
     
     if not doc:
-        raise ValueError("Document not found")
+        raise ResourceNotFoundError("Document", document_id)
     
     # Delete PDF file from disk
-    
     success, error = delete_file(doc["file_path"])
-   
 
     if not success:
-        raise Exception(f"Failed to delete PDF file: {error}")
-    
+        raise FileOperationError("delete", doc["file_path"], error)
     
     # Delete extraction directory
     extraction_dir = Path(doc["file_path"]).parent.parent / Path(f"images/extracted/{document_id}")
     success, error = delete_directory(str(extraction_dir))
     # Note: Directory might not exist, that's OK - we still proceed with DB cleanup
     if not success and "Directory not found" not in error:
-        raise Exception(f"Failed to delete extraction directory: {error}")
+        raise FileOperationError("delete", str(extraction_dir), error)
     
     # Get all extracted image IDs for this document (with full data for CBIR cleanup)
     extracted_images = list(images_col.find({
