@@ -199,52 +199,30 @@ async def upload_document(
         )
 
 
-@router.get("", response_model=Union[PaginatedDocumentResponse, List[DocumentResponse]])
+@router.get("", response_model=PaginatedDocumentResponse)
 async def list_documents(
     current_user: dict = Depends(get_current_user),
-    page: Optional[int] = Query(None, ge=1),
-    per_page: int = Query(12, ge=1,le=24),
-    limit: int = Query(50, deprecated=True),
-    offset: int = Query(0, deprecated=True)
+    page: int = Query(1, ge=1),
+    per_page: int = Query(12, ge=1, le=24)
 ):
     """
-    List all documents uploaded by current user with optional pagination.
-    
-    Supports two modes:
-    - **Paginated mode** (recommended): Use `page` and `per_page` params. Returns
-      PaginatedDocumentResponse with metadata (total, total_pages, has_next, has_prev).
-    - **Legacy mode**: Use `limit` and `offset` params. Returns plain list of DocumentResponse.
+    List all documents uploaded by current user with pagination.
     
     Args:
         current_user: Current authenticated user
-        page: Page number (1-indexed, minimum 1). If provided, returns paginated response.
+        page: Page number (1-indexed, minimum 1). default: 1
         per_page: Number of items per page (default: 12, max: 24)
-        limit: DEPRECATED - Maximum number of documents to return
-        offset: DEPRECATED - Number of documents to skip
         
     Returns:
-        PaginatedDocumentResponse (if page is provided) or List[DocumentResponse] (legacy)
+        PaginatedDocumentResponse
     """
     documents_col = get_documents_collection()
     user_id_str = str(current_user["_id"])
     user_quota = current_user.get("storage_limit_bytes", DEFAULT_USER_STORAGE_QUOTA)
     
-    # Determine pagination mode
-    use_pagination = page is not None
-    
-    if not use_pagination:
-        if not _warned_deprecated:
-            logger.warning("The 'limit' and 'offset' parameters are deprecated. Use 'page' and 'per_page' instead.")
-            _warned_deprecated = True
-    
-    if use_pagination:
-        # New pagination mode with page/per_page
-        actual_offset = (page - 1) * per_page
-        actual_limit = per_page
-    else:
-        # Legacy mode with limit/offset
-        actual_offset = offset
-        actual_limit = limit
+    # Pagination
+    actual_offset = (page - 1) * per_page
+    actual_limit = per_page
     
     # Build query
     query = {"user_id": user_id_str}
@@ -263,26 +241,21 @@ async def list_documents(
         doc["_id"] = str(doc["_id"])
         doc = augment_with_quota(doc, user_id_str, user_quota)
         responses.append(DocumentResponse(**doc))
-    
-    if use_pagination:
-        # Get total count for pagination
-        total = documents_col.count_documents(query)
+    # Get total count for pagination
+    total = documents_col.count_documents(query)
 
-        # Return paginated response with metadata
-        total_pages = math.ceil(total / per_page) if total > 0 else 1
-        
-        return PaginatedDocumentResponse(
-            items=responses,
-            total=total,
-            page=page,
-            per_page=per_page,
-            total_pages=total_pages,
-            has_next=page < total_pages,
-            has_prev=page > 1
-        )
-    else:
-        # Legacy mode: return plain list
-        return responses
+    # Return paginated response with metadata
+    total_pages = math.ceil(total / per_page) if total > 0 else 1
+    
+    return PaginatedDocumentResponse(
+        items=responses,
+        total=total,
+        page=page,
+        per_page=per_page,
+        total_pages=total_pages,
+        has_next=page < total_pages,
+        has_prev=page > 1
+    )
 
 
 @router.get("/{doc_id}")

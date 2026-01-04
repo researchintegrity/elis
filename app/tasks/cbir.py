@@ -150,6 +150,13 @@ def cbir_index_batch_with_progress(
     images_col = get_images_collection()
     total_images = len(image_items)
     
+    # Terminal statuses that should not be updated
+    TERMINAL_STATUSES = [
+        IndexingJobStatus.COMPLETED.value,
+        IndexingJobStatus.PARTIAL.value,
+        IndexingJobStatus.FAILED.value
+    ]
+    
     def update_job_progress(
         status: str,
         processed: int,
@@ -159,7 +166,7 @@ def cbir_index_batch_with_progress(
         errors: list = None,
         completed: bool = False
     ):
-        """Helper to update job progress in MongoDB"""
+        """Helper to update job progress in MongoDB with conditional update"""
         update_doc = {
             "status": status,
             "processed_images": processed,
@@ -174,10 +181,31 @@ def cbir_index_batch_with_progress(
         if completed:
             update_doc["completed_at"] = datetime.utcnow()
         
-        jobs_col.update_one({"_id": job_id}, {"$set": update_doc})
+        # Use conditional update to prevent overwriting terminal states
+        # Only update if status is not already in a terminal state
+        jobs_col.update_one(
+            {"_id": job_id, "status": {"$nin": TERMINAL_STATUSES}},
+            {"$set": update_doc}
+        )
+    
+    # Initialize progress counters before try block to ensure they're defined in except
+    processed_count = 0
+    indexed_count = 0
+    failed_count = 0
+    errors = []
     
     try:
         logger.info(f"Starting batch indexing with progress for job {job_id}: {total_images} images")
+        
+        # Idempotency check: verify job hasn't already been completed by another task instance
+        existing_job = jobs_col.find_one({"_id": job_id})
+        if existing_job and existing_job.get("status") in TERMINAL_STATUSES:
+            logger.warning(f"Job {job_id} already in terminal state '{existing_job.get('status')}', skipping")
+            return {
+                "job_id": job_id,
+                "status": existing_job.get("status"),
+                "message": "Job already completed by another task instance"
+            }
         
         # Update status to processing
         update_job_progress(
@@ -189,10 +217,6 @@ def cbir_index_batch_with_progress(
         )
         
         # Process in chunks for better progress granularity
-        processed_count = 0
-        indexed_count = 0
-        failed_count = 0
-        errors = []
         
         for i in range(0, total_images, INDEXING_BATCH_CHUNK_SIZE):
             chunk = image_items[i:i + INDEXING_BATCH_CHUNK_SIZE]
@@ -224,16 +248,29 @@ def cbir_index_batch_with_progress(
                 indexed_count += chunk_indexed
                 failed_count += chunk_failed
                 
-                # Update image documents with CBIR status
-                for item in chunk:
-                    images_col.update_one(
-                        {"_id": ObjectId(item["image_id"])},
-                        {
-                            "$set": {
-                                "cbir_indexed": True,
-                                "cbir_indexed_at": datetime.utcnow()
+                # Only mark images as indexed when the entire chunk succeeded
+                # The CBIR service doesn't return per-image status, so we can't
+                # determine which specific images failed within a partial chunk
+                if chunk_failed == 0:
+                    for item in chunk:
+                        images_col.update_one(
+                            {"_id": ObjectId(item["image_id"])},
+                            {
+                                "$set": {
+                                    "cbir_indexed": True,
+                                    "cbir_indexed_at": datetime.utcnow()
+                                }
                             }
-                        }
+                        )
+                else:
+                    # Partial chunk failure - log warning, don't mark any as indexed
+                    # to avoid marking failed images incorrectly
+                    logger.warning(
+                        f"Chunk had partial failures: {chunk_indexed} indexed, {chunk_failed} failed. "
+                        f"Images not marked as indexed due to lack of per-image status."
+                    )
+                    errors.append(
+                        f"Chunk {i // INDEXING_BATCH_CHUNK_SIZE + 1}: {chunk_failed} of {chunk_size} failed"
                     )
             else:
                 # Entire chunk failed
@@ -278,8 +315,8 @@ def cbir_index_batch_with_progress(
         # Update job as failed
         update_job_progress(
             status=IndexingJobStatus.FAILED.value,
-            processed=processed_count if 'processed_count' in dir() else 0,
-            indexed=indexed_count if 'indexed_count' in dir() else 0,
+            processed=processed_count,
+            indexed=indexed_count,
             failed=total_images,
             current_step=f"Error: {str(e)}",
             errors=[str(e)],

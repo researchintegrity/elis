@@ -182,15 +182,22 @@ def get_relationships_collection():
     return collection
 
 
+# Flag to track if indexing_jobs indexes have been created
+_indexing_jobs_indexes_created = False
+
+
 def get_indexing_jobs_collection():
     """Get indexing_jobs collection for tracking batch indexing progress"""
+    global _indexing_jobs_indexes_created
     collection = db_connection.get_collection("indexing_jobs")
     
-    # Create indexes for better performance
-    collection.create_index("user_id")
-    collection.create_index("status")
-    collection.create_index("created_at")
-    collection.create_index([("user_id", 1), ("created_at", -1)])
+    # Create indexes only once (on first access)
+    if not _indexing_jobs_indexes_created:
+        collection.create_index("user_id", background=True)
+        collection.create_index("status", background=True)
+        collection.create_index("created_at", background=True)
+        collection.create_index([("user_id", 1), ("created_at", -1)], background=True)
+        _indexing_jobs_indexes_created = True
     
     return collection
 
