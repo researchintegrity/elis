@@ -9,7 +9,7 @@ from typing import List, Optional, Union
 
 from bson import ObjectId
 from celery.result import AsyncResult
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
 
 from app.celery_config import celery_app
@@ -40,6 +40,8 @@ from app.utils.file_storage import (
     validate_pdf,
 )
 from app.utils.security import get_current_user
+
+import warnings
 
 logger = logging.getLogger(__name__)
 
@@ -202,9 +204,9 @@ async def upload_document(
 async def list_documents(
     current_user: dict = Depends(get_current_user),
     page: Optional[int] = None,
-    per_page: int = 12,
-    limit: int = 50,
-    offset: int = 0
+    per_page: int = Query(12, le=24),
+    limit: int = Query(50, deprecated=True),
+    offset: int = Query(0, deprecated=True)
 ):
     """
     List all documents uploaded by current user with optional pagination.
@@ -230,6 +232,13 @@ async def list_documents(
     
     # Determine pagination mode
     use_pagination = page is not None
+    
+    if not use_pagination:
+        warnings.warn(
+            "The 'limit' and 'offset' parameters are deprecated. Use 'page' and 'per_page' instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
     
     if use_pagination:
         # New pagination mode with page/per_page
