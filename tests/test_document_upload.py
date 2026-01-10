@@ -69,14 +69,44 @@ def mock_celery_task():
 def mock_celery_tasks_globally():
     """
     Auto-use fixture that patches all Celery tasks to avoid Redis connection issues.
+    Also handles CBIR health check:
+    - If real CBIR service is running at localhost:8001, uses it (patches URL).
+    - If not, mocks the health check to return success.
     This applies to all tests in this module automatically.
     """
+    from contextlib import ExitStack
+    
     mock_task = MagicMock()
     mock_task.id = "mock-task-id-12345"
     mock_task.delay = MagicMock(return_value=mock_task)
     
-    with patch('app.routes.documents.extract_images_from_document', mock_task), \
-         patch('app.tasks.image_extraction.extract_images_from_document', mock_task):
+    # Check if real CBIR service is available locally
+    use_real_cbir = False
+    try:
+        resp = requests.get("http://localhost:8001/health", timeout=0.5)
+        if resp.status_code == 200:
+            use_real_cbir = True
+    except Exception:
+        pass
+        
+    stack = ExitStack()
+    
+    # Always patch celery tasks
+    stack.enter_context(patch('app.routes.documents.extract_images_from_document', mock_task))
+    stack.enter_context(patch('app.tasks.image_extraction.extract_images_from_document', mock_task))
+    
+    if use_real_cbir:
+        print("\nUsing REAL CBIR service at http://localhost:8001")
+        # Patch the URL in the docker_cbir module to point to localhost
+        stack.enter_context(patch('app.utils.docker_cbir.CBIR_SERVICE_URL', "http://localhost:8001"))
+    else:
+        print("\nReal CBIR service not found, using MOCK")
+        # Mock CBIR health check to always return healthy
+        mock_cbir_health = MagicMock(return_value=(True, None))
+        stack.enter_context(patch('app.routes.images.check_cbir_health', mock_cbir_health))
+        stack.enter_context(patch('app.routes.documents.check_cbir_health', mock_cbir_health))
+        
+    with stack:
         yield mock_task
 
 
@@ -1360,5 +1390,139 @@ class TestStorageQuota:
         assert "user_storage_remaining" in data
 
 
+# ============================================================================
+# TESTS: CBIR HEALTH CHECK
+# ============================================================================
+
+class TestCBIRHealthCheck:
+    """Test CBIR service health check functionality"""
+    
+    def test_cbir_health_check_success(self):
+        """Test that check_cbir_health returns True when service is healthy"""
+        from unittest.mock import patch, MagicMock
+        from app.utils.docker_cbir import check_cbir_health
+        
+        # Mock a successful health check response
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"model": True, "database": True}
+        
+        with patch('app.utils.docker_cbir.requests.get', return_value=mock_response):
+            healthy, message = check_cbir_health()
+            assert healthy is True
+            assert "healthy" in message.lower()
+    
+    def test_cbir_health_check_partial_init(self):
+        """Test that check_cbir_health returns False when service is partially initialized"""
+        from unittest.mock import patch, MagicMock
+        from app.utils.docker_cbir import check_cbir_health
+        
+        # Mock a partial initialization response (model ready, database not)
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"model": True, "database": False}
+        
+        with patch('app.utils.docker_cbir.requests.get', return_value=mock_response):
+            healthy, message = check_cbir_health()
+            assert healthy is False
+            assert "partially" in message.lower()
+    
+    def test_cbir_health_check_connection_error(self):
+        """Test that check_cbir_health returns False when service is unreachable"""
+        from unittest.mock import patch
+        from app.utils.docker_cbir import check_cbir_health
+        import requests
+        
+        with patch('app.utils.docker_cbir.requests.get', 
+                   side_effect=requests.RequestException("Connection refused")):
+            healthy, message = check_cbir_health()
+            assert healthy is False
+            assert "Failed to connect" in message
+    
+    def test_cbir_health_check_non_200_status(self):
+        """Test that check_cbir_health returns False for non-200 status codes"""
+        from unittest.mock import patch, MagicMock
+        from app.utils.docker_cbir import check_cbir_health
+        
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+        
+        with patch('app.utils.docker_cbir.requests.get', return_value=mock_response):
+            healthy, message = check_cbir_health()
+            assert healthy is False
+            assert "status 500" in message
+    
+    def test_upload_returns_503_when_cbir_unavailable(self, client):
+        """Test that image upload returns 503 when CBIR service is unavailable"""
+        from unittest.mock import patch
+        
+        # Register and login
+        import uuid
+        unique_id = str(uuid.uuid4())[:8]
+        username = f"testuser_cbir_{unique_id}"
+        client.post(
+            "/auth/register",
+            json={
+                "username": username,
+                "email": f"{username}@example.com",
+                "password": "TestPassword123",
+                "full_name": "Test User"
+            }
+        )
+        login_response = client.post(
+            "/auth/login",
+            data={"username": username, "password": "TestPassword123"}
+        )
+        token = login_response.json()["access_token"]
+        client.headers["Authorization"] = f"Bearer {token}"
+        
+        # Mock CBIR health check to return unhealthy
+        with patch('app.routes.images.check_cbir_health', return_value=(False, "Service unavailable")):
+            filename, image_content = create_test_image()
+            response = client.post(
+                "/images/upload",
+                files={"file": (filename, io.BytesIO(image_content), "image/png")}
+            )
+            
+            assert response.status_code == 503
+            assert "try again" in response.json()["detail"].lower()
+    
+    def test_document_upload_returns_503_when_cbir_unavailable(self, client):
+        """Test that document upload returns 503 when CBIR service is unavailable"""
+        from unittest.mock import patch
+        
+        # Register and login
+        import uuid
+        unique_id = str(uuid.uuid4())[:8]
+        username = f"testuser_cbir_doc_{unique_id}"
+        client.post(
+            "/auth/register",
+            json={
+                "username": username,
+                "email": f"{username}@example.com",
+                "password": "TestPassword123",
+                "full_name": "Test User"
+            }
+        )
+        login_response = client.post(
+            "/auth/login",
+            data={"username": username, "password": "TestPassword123"}
+        )
+        token = login_response.json()["access_token"]
+        client.headers["Authorization"] = f"Bearer {token}"
+        
+        # Mock CBIR health check to return unhealthy
+        with patch('app.routes.documents.check_cbir_health', return_value=(False, "Service unavailable")):
+            filename, pdf_content = create_test_pdf()
+            response = client.post(
+                "/documents/upload",
+                files={"file": (filename, io.BytesIO(pdf_content), "application/pdf")}
+            )
+            
+            assert response.status_code == 503
+            assert "try again" in response.json()["detail"].lower()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])
+
