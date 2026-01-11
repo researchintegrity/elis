@@ -116,8 +116,32 @@ def list_analyses(
         # Build filter query - always filter by user_id for security
         filter_query = {"user_id": user_id_str}
         
+        # Exclude non-forensic analysis types from the Analysis Dashboard
+        # These belong in the Jobs dashboard or other views
+        EXCLUDED_TYPES = ["cbir_search", "document_extraction", "image_extraction"]
+        
+        # Valid forensic screening tool subtypes (exclude records that don't match these)
+        VALID_SCREENING_SUBTYPES = ["ela", "noise", "gradient", "levelSweep", "cloneDetection", "metadata"]
+        
         if type:
-            filter_query["type"] = type.value
+            # If user explicitly filters by type, use that (only if it's a forensic type)
+            if type.value not in EXCLUDED_TYPES:
+                filter_query["type"] = type.value
+                # If filtering by screening_tool, also require valid subtype
+                if type.value == "screening_tool":
+                    filter_query["parameters.analysis_subtype"] = {"$in": VALID_SCREENING_SUBTYPES}
+        else:
+            # By default, exclude non-forensic types AND mislabeled screening_tool records
+            # Use $or to include:
+            # 1. All forensic types except screening_tool
+            # 2. screening_tool with valid subtypes only
+            filter_query["$or"] = [
+                {"type": {"$nin": EXCLUDED_TYPES + ["screening_tool"]}},
+                {
+                    "type": "screening_tool",
+                    "parameters.analysis_subtype": {"$in": VALID_SCREENING_SUBTYPES}
+                }
+            ]
         
         if status:
             filter_query["status"] = status.value
