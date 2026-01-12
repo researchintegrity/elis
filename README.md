@@ -29,6 +29,10 @@ Our goal is to democratize access to advanced forensic tools, empowering researc
 Currently, the system is focused on **image forensics**, but future versions will extend to text and statistical data analysis.
 
 
+
+https://github.com/user-attachments/assets/f23e7ad3-1dbd-46d5-b5c5-5b897fd4a88b
+
+
 ---
 
 ## Getting Started
@@ -133,4 +137,5 @@ Learn more about her work at her blog: [Science Integrity Digest](https://scienc
 
 <div align="center">
   <sub>Built with ❤️ for Science</sub>
+
 </div>
